@@ -270,7 +270,7 @@ dit-vae
   BPE tokenize
   Qwen3-Embedding (28L text encoder)
   CondEncoder (lyric 8L + timbre 4L + text_proj)
-  FSQ detokenizer (audio codes -> source latents)
+  FSQ detokenizer (audio codes -> flow matching source latents)
   DiT (24L flow matching, Euler steps)
   VAE (AutoencoderOobleck, tiled decode)
   WAV stereo 48kHz
@@ -300,22 +300,25 @@ The VAE reconstructs audio from latent space through 5 upsampling blocks (total 
 each running a transposed convolution followed by 3 WaveNet-style residual units with
 dilated convolutions and Snake activations. A single tile builds a graph of 36 snake
 activations, 5 transposed convolutions, and 32 regular convolutions. At the final blocks,
-sequence lengths reach 491520 timesteps, which stresses GGML ops designed for short NLP
-sequences. The DiT (diffusion transformer) uses only standard GGML ops and needs no patches.
+sequence lengths reach 491520 timesteps, which stresses GGML ops designed for short NLP sequences.
+The DiT (flow matching diffusion transformer) uses only standard GGML ops and needs no patches.
 
 Patches on top of upstream GGML, oldest first:
 
 | Commit | Scope | Description |
 |--------|-------|-------------|
-| `e2ccaf1` | CUDA | `conv_transpose_1d`: replace O(T_in) brute-force loop with bounded range |
-| `af2a075` | CUDA | `im2col`: grid-stride loop on OW to fix gridDim.y overflow when T > 65535 |
-| `c9c673d` | Metal | `conv_transpose_1d`: same bounded loop fix as CUDA |
-| `10cd9cc` | CPU, CUDA, Metal | New `GGML_OP_COL2IM_1D`: scatter-add for GEMM-based conv_transpose_1d decomposition |
-| `f23ec42` | CPU, CUDA, Metal | New `GGML_OP_SNAKE`: fused activation y = x + sin^2(a*x) / b (replaces 5 element-wise ops) |
-| `cb9448a` | Metal | Fix snake kernel to use current C wrapper API |
-| `bef7e1b` | Vulkan | Guard `VK_EXT_layer_settings` for legacy Vulkan SDK (fixes MI50/gfx906) |
-| `b512bc3` | Vulkan | `col2im_1d`: add Vulkan backend |
-| `2dff0b5` | Vulkan | `snake`: add Vulkan backend |
+| `8c70db84` | CUDA | `conv_transpose_1d`: replace O(T_in) brute-force loop with bounded range |
+| `b65bf458` | CUDA | `im2col`: grid-stride loop on OW to fix gridDim.y overflow when T > 65535 |
+| `e0e36f3c` | Metal | `conv_transpose_1d`: same bounded loop fix as CUDA |
+| `2b9080bd` | CPU, CUDA, Metal | New `GGML_OP_COL2IM_1D`: scatter-add for GEMM-based conv_transpose_1d decomposition |
+| `02c8041f` | CPU, CUDA, Metal | New `GGML_OP_SNAKE`: fused activation y = x + sin^2(a*x) / b (replaces 5 element-wise ops) |
+| `3f60b19c` | Metal | Fix snake kernel to use current C wrapper API |
+| `cb5d7067` | Vulkan | Guard `VK_EXT_layer_settings` for legacy Vulkan SDK (fixes MI50/gfx906) |
+| `1f0f4214` | Vulkan | `col2im_1d`: add Vulkan backend |
+| `efbf3df6` | Vulkan | `snake`: add Vulkan backend |
+| `6608cd11` | Vulkan | Fix rvalue ref for `col2im_1d` and `snake` push constants |
+| `06101d38` | Vulkan | Fix double-division dispatch for `col2im_1d` and `snake` |
+| `91416cee` | CPU, CUDA, Metal, Vulkan | `col2im_1d`: fuse padding crop via p0 parameter (saves 5 allocs + 5 memcpy per VAE tile) |
 
 **Why col2im_1d**: upstream `ggml_conv_transpose_1d` uses a naive CUDA kernel (one scalar
 FMA loop per output element, no shared memory, no tensor cores). The VAE spends 40% of its
