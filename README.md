@@ -32,7 +32,7 @@ cmake .. -DGGML_CUDA=ON -DGGML_BLAS=ON
 cmake --build . --config Release -j$(nproc)
 ```
 
-Builds two binaries: `ace-qwen3` (LLM) and `dit-vae` (DiT + VAE).
+Builds three binaries: `ace-qwen3` (LLM), `dit-vae` (DiT + VAE) and `neural-codec` (VAE encode/decode).
 
 ## Models
 
@@ -349,6 +349,56 @@ Debug:
 ```
 
 Models are loaded once and reused across all requests.
+
+## neural-codec
+
+GGML-native neural audio codec based on the Oobleck VAE encoder and decoder.
+Serves two purposes: validating the precision of the full VAE chain (encode +
+decode roundtrip), and compressing music at 1.6 KB/s with CD quality and no
+perceptible difference from the original.
+
+```
+Usage: neural-codec --vae <gguf> --encode|--decode -i <input> [-o <o>] [--q8]
+
+Required:
+  --vae <path>            VAE GGUF file
+  --encode | --decode     Encode WAV to latent, or decode latent to WAV
+  -i <path>               Input (WAV for encode, latent for decode)
+
+Output:
+  -o <path>               Output file (auto-named if omitted)
+  --q8                    Quantize latent to int8 (~13 kbit/s vs ~51 kbit/s f32)
+
+Output naming: song.wav -> song.latent (f32) or song.nca8 (Q8)
+               song.latent -> song.wav
+
+VAE tiling (memory control):
+  --vae-chunk <N>         Latent frames per tile (default: 256)
+  --vae-overlap <N>       Overlap frames per side (default: 64)
+
+Latent formats (decode auto-detects):
+  f32:  flat [T, 64] f32, no header. ~51 kbit/s.
+  NCA8: header + per-frame Q8. ~13 kbit/s.
+```
+
+The encoder is the symmetric mirror of the decoder: same snake activations,
+same residual units, strided conv1d for downsampling instead of transposed
+conv1d for upsampling. No new GGML ops. Downsample 2x4x4x6x10 = 1920x.
+
+48kHz stereo audio is compressed to 64-dimensional latent frames at 25 Hz.
+With Q8 quantization, each frame is 66 bytes (2B scale + 64B int8), giving
+~13 kbit/s. The quantization error is 39 dB below the VAE reconstruction
+error, meaning the Q8 step is perceptually free.
+
+```bash
+# encode
+neural-codec --vae models/vae-BF16.gguf --encode --q8 -i song.wav -o song.nca8
+
+# decode
+neural-codec --vae models/vae-BF16.gguf --decode -i song.nca8 -o song_decoded.wav
+
+# roundtrip validation: compare song.wav and song_decoded.wav with your ears
+```
 
 ## Architecture
 
