@@ -53,7 +53,7 @@ struct AceRequest {
     // lego mode (requires --src-audio, base model only)
     // Track name from TRACK_NAMES: vocals, backing_vocals, drums, bass, guitar,
     // keyboard, percussion, strings, synth, fx, brass, woodwinds.
-    // Empty = not lego. Sets instruction and forces full-range repaint.
+    // Empty = not lego. Sets instruction, cover path, strength=1.0.
     std::string lego;  // ""
 };
 
