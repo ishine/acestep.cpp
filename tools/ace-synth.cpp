@@ -24,8 +24,6 @@ static void print_usage(const char * prog) {
             "LoRA:\n"
             "  --lora <path>           LoRA safetensors file or directory\n"
             "  --lora-scale <float>    LoRA scaling factor (default: 1.0)\n\n"
-            "Batch:\n"
-            "  --batch <N>             DiT variations per request (default: 1, max 9)\n\n"
             "Output:\n"
             "  Default: MP3 at 128 kbps. input.json -> input0.mp3, input1.mp3, ...\n"
             "  --mp3-bitrate <kbps>    MP3 bitrate (default: 128)\n"
@@ -54,7 +52,6 @@ int main(int argc, char ** argv) {
     const char *              lora_path      = NULL;
     float                     lora_scale     = 1.0f;
     bool                      use_fa         = true;
-    int                       batch_n        = 1;
     int                       vae_chunk      = 256;
     int                       vae_overlap    = 64;
     bool                      output_wav     = false;  // default MP3, --wav forces WAV
@@ -82,8 +79,6 @@ int main(int argc, char ** argv) {
             dump_dir = argv[++i];
         } else if (strcmp(argv[i], "--no-fa") == 0) {
             use_fa = false;
-        } else if (strcmp(argv[i], "--batch") == 0 && i + 1 < argc) {
-            batch_n = atoi(argv[++i]);
         } else if (strcmp(argv[i], "--vae-chunk") == 0 && i + 1 < argc) {
             vae_chunk = atoi(argv[++i]);
         } else if (strcmp(argv[i], "--vae-overlap") == 0 && i + 1 < argc) {
@@ -105,10 +100,6 @@ int main(int argc, char ** argv) {
     if (request_paths.empty()) {
         fprintf(stderr, "[CLI] ERROR: --request required\n");
         print_usage(argv[0]);
-        return 1;
-    }
-    if (batch_n < 1 || batch_n > 9) {
-        fprintf(stderr, "[CLI] ERROR: --batch must be 1..9\n");
         return 1;
     }
     if (!dit_gguf) {
@@ -171,7 +162,6 @@ int main(int argc, char ** argv) {
     // Process each request
     for (int ri = 0; ri < (int) request_paths.size(); ri++) {
         const char * rpath = request_paths[ri];
-        fprintf(stderr, "[Request %d/%d] %s (batch=%d)\n", ri + 1, (int) request_paths.size(), rpath, batch_n);
 
         // Compute output basename: strip .json suffix
         std::string basename(rpath);
@@ -194,6 +184,16 @@ int main(int argc, char ** argv) {
             fprintf(stderr, "[Request] ERROR: caption is empty in %s, skipping\n", rpath);
             continue;
         }
+
+        // batch_size from JSON (clamped to 1..9)
+        int batch_n = req.batch_size;
+        if (batch_n < 1) {
+            batch_n = 1;
+        } else if (batch_n > 9) {
+            fprintf(stderr, "[Request] WARNING: batch_size %d clamped to 9\n", batch_n);
+            batch_n = 9;
+        }
+        fprintf(stderr, "[Request %d/%d] %s (batch=%d)\n", ri + 1, (int) request_paths.size(), rpath, batch_n);
 
         // Generate
         std::vector<AceAudio> audio(batch_n);

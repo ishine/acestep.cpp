@@ -20,6 +20,7 @@ void request_init(AceRequest * r) {
     r->keyscale             = "";
     r->timesignature        = "";
     r->vocal_language       = "";
+    r->batch_size           = 1;
     r->seed                 = -1;
     r->lm_temperature       = 0.85f;
     r->lm_cfg_scale         = 2.0f;
@@ -293,6 +294,8 @@ bool request_parse(AceRequest * r, const char * path) {
         // ints
         else if (k == "bpm") {
             r->bpm = atoi(v.c_str());
+        } else if (k == "batch_size") {
+            r->batch_size = atoi(v.c_str());
         } else if (k == "seed") {
             r->seed = strtoll(v.c_str(), nullptr, 10);
         }
@@ -347,6 +350,8 @@ bool request_write(const AceRequest * r, const char * path) {
     fprintf(f, "  \"timesignature\": \"%s\",\n", json_escape(r->timesignature).c_str());
     fprintf(f, "  \"vocal_language\": \"%s\",\n", json_escape(r->vocal_language).c_str());
     fprintf(f, "  \"seed\": %lld,\n", (long long) r->seed);
+    fprintf(f, "  \"batch_size\": %d,\n", r->batch_size);
+    fprintf(f, "  \"batch_size\": %d,\n", r->batch_size);
     fprintf(f, "  \"lm_temperature\": %.2f,\n", r->lm_temperature);
     fprintf(f, "  \"lm_cfg_scale\": %.1f,\n", r->lm_cfg_scale);
     fprintf(f, "  \"lm_top_p\": %.2f,\n", r->lm_top_p);
@@ -372,7 +377,7 @@ bool request_write(const AceRequest * r, const char * path) {
 }
 
 void request_dump(const AceRequest * r, FILE * f) {
-    fprintf(f, "[Request] seed=%lld\n", (long long) r->seed);
+    fprintf(f, "[Request] seed=%lld batch=%d\n", (long long) r->seed, r->batch_size);
     fprintf(f, "[Request] caption: %.60s%s\n", r->caption.c_str(), r->caption.size() > 60 ? "..." : "");
     fprintf(f, "[Request] lyrics: %zu bytes\n", r->lyrics.size());
     fprintf(f, "[Request] bpm=%d dur=%.0f key=%s ts=%s lang=%s\n", r->bpm, r->duration, r->keyscale.c_str(),

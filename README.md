@@ -120,32 +120,37 @@ With a LoRA adapter (PEFT directory or ComfyUI single file):
     --lora best_sft_v2_2338_comfyui.safetensors
 ```
 
-Generate multiple songs at once with `--batch`:
+Generate multiple songs at once with `batch_size` in the JSON:
 
 ```bash
-# LLM: 2 LM variations x 2 DiT variations = 4 WAVs total
-# -> request0.json, request1.json (different lyrics/codes, seeds auto+0, auto+1)
+# 2 song variations (different lyrics, codes, metadata)
+cat > /tmp/request.json << 'EOF'
+{
+    "caption": "Upbeat pop rock anthem with driving guitars and catchy hooks",
+    "vocal_language": "fr",
+    "batch_size": 2
+}
+EOF
+
+# LM: request.json (batch_size=2) -> request0.json, request1.json (each batch_size=1)
 ./build/ace-lm \
     --request /tmp/request.json \
-    --model models/acestep-5Hz-lm-4B-Q8_0.gguf \
-    --batch 2
+    --model models/acestep-5Hz-lm-4B-Q8_0.gguf
 
-# DiT+VAE: (2 DiT variations of LM output 1 and 2)
-# -> request0.json -> request00.wav, request01.wav
-# -> request1.json -> request10.wav, request11.wav
+# DiT+VAE: -> request00.mp3, request10.mp3 (one per request, batch_size=1)
 ./build/ace-synth \
     --request /tmp/request0.json /tmp/request1.json \
     --text-encoder models/Qwen3-Embedding-0.6B-Q8_0.gguf \
     --dit models/acestep-v15-turbo-Q8_0.gguf \
-    --vae models/vae-BF16.gguf \
-    --batch 2
+    --vae models/vae-BF16.gguf
 ```
 
 The LM decides song structure (lyrics, melody, rhythm via audio codes), so
 LM batch variations produce genuinely different songs. DiT batch variations
 only differ by initial noise, producing subtle variations of the same piece
-(slightly different timbres, minor rhythmic shifts). Use LM batching for
-diversity, DiT batching for cherry-picking the best render.
+(slightly different timbres, minor rhythmic shifts). The LM consumes
+`batch_size` and resets it to 1 in its output JSONs. To get DiT noise
+variations, set `batch_size` directly in an already-enriched JSON.
 
 Transform an existing song with `--src-audio` (no LLM needed):
 
@@ -191,7 +196,7 @@ prompt to generate an enriched caption, lyrics, and metadata (bpm, keyscale,
 timesignature, duration, vocal_language) via CoT. Phase 2 reinjects the CoT
 and generates audio codes using the "Generate tokens" prompt. CFG is forced
 to 1.0 in phase 1 (free sampling); `lm_cfg_scale` only applies in phase 2.
-With `--batch N`, each element runs its own phase 1 from a different seed,
+With `batch_size > 1`, each element runs its own phase 1 from a different seed,
 producing N completely different songs. See `examples/simple.json`.
 
 **Caption + lyrics (+ optional metadata)**: single LLM pass. The "Generate
@@ -202,7 +207,7 @@ generation. See `examples/partial.json`.
 
 **Everything provided** (caption, lyrics, bpm, duration, keyscale,
 timesignature): the LLM skips CoT and generates audio codes directly.
-With `--batch N`, all elements share the same prompt (single prefill,
+With `batch_size > 1`, all elements share the same prompt (single prefill,
 KV cache copied). See `examples/full.json`.
 
 **Instrumental** (`lyrics="[Instrumental]"`): treated as "lyrics provided",
@@ -352,6 +357,13 @@ BCP-47 language code for lyrics, e.g. `"en"`, `"fr"`, `"ja"`. Three states:
 
 ### Generation control
 
+**`batch_size`** (int, default `1`)
+Number of variations to generate. Matches Python `GenerationConfig.batch_size`.
+Each variation uses a different seed (seed+0, seed+1, ..., seed+N-1).
+ace-lm generates N enriched requests and resets `batch_size` to 1 in each
+output (the batch is consumed). ace-synth generates N audio renders from
+different initial noise. Maximum 9 for ace-synth.
+
 **`seed`** (int64, default `-1` = random)
 RNG seed. Resolved once at startup to a random value if -1. Batch elements
 use `seed+0`, `seed+1`, ... `seed+N-1`.
@@ -441,11 +453,6 @@ Required:
   --request <json>       Input request JSON
   --model <gguf>         Model GGUF file
 
-Batch:
-  --batch <N>            Batch N sequences (default: 1)
-
-Output naming: input.json -> input0.json, input1.json, ... (last digit = batch index)
-
 Debug:
   --max-seq <N>          KV cache size (default: 8192)
   --no-fsm               Disable FSM constrained decoding
@@ -456,9 +463,10 @@ Debug:
 
 Three LLM sizes: 0.6B (fast), 1.7B, 4B (best quality).
 
-Batching is always active (default N=1). Model weights are read once per
-decode step for all N sequences. Phase 1 (CoT) and Phase 2 (audio codes)
-are both batched with independent seeds (seed+0 .. seed+N-1).
+Batching is controlled by `batch_size` in the request JSON (default 1).
+Model weights are read once per decode step for all N sequences. Phase 1
+(CoT) and Phase 2 (audio codes) are both batched with independent seeds
+(seed+0 .. seed+N-1).
 
 ## ace-synth reference
 
@@ -477,9 +485,6 @@ Reference audio:
 LoRA:
   --lora <path>           LoRA safetensors file or directory
   --lora-scale <float>    LoRA scaling factor (default: 1.0)
-
-Batch:
-  --batch <N>             DiT variations per request (default: 1, max 9)
 
 Output:
   Default: MP3 at 128 kbps. input.json -> input0.mp3, input1.mp3, ...

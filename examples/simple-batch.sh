@@ -1,25 +1,24 @@
 #!/bin/bash
-# Generate 2 LM variations, then 2 DiT variations per LM output = 4 total WAVs
+# Generate 2 song variations via LM (batch_size=2 in JSON)
 #
-# LM phase:
-# simple.json -> simple0.json, simple1.json
+# LM phase (batch_size=2 in simple-batch.json):
+# simple-batch.json -> simple-batch0.json, simple-batch1.json
+# Each output has batch_size=1 (consumed by LM).
 #
-# DiT phase:
-# simple0.json -> simple00.wav, simple01.wav
-# simple1.json -> simple10.wav, simple11.wav
+# DiT phase (batch_size=1 in each output JSON):
+# simple-batch0.json -> simple-batch00.mp3
+# simple-batch1.json -> simple-batch10.mp3
 
 set -eu
 
-# Phase 1: LM generates 2 code variations
+# Phase 1: LM generates 2 variations (different lyrics/codes/metas)
 ../build/ace-lm \
-    --request simple.json \
-    --model ../models/acestep-5Hz-lm-4B-Q8_0.gguf \
-    --batch 2
+    --request simple-batch.json \
+    --model ../models/acestep-5Hz-lm-4B-Q8_0.gguf
 
-# Phase 2: DiT+VAE generates 2 noise variations per LM output (single call)
+# Phase 2: DiT+VAE renders each variation
 ../build/ace-synth \
-    --request simple0.json simple1.json \
+    --request simple-batch0.json simple-batch1.json \
     --text-encoder ../models/Qwen3-Embedding-0.6B-Q8_0.gguf \
     --dit ../models/acestep-v15-turbo-Q8_0.gguf \
-    --vae ../models/vae-BF16.gguf \
-    --batch 2
+    --vae ../models/vae-BF16.gguf

@@ -18,11 +18,6 @@ static void usage(const char * prog) {
             "  --request <json>       Input request JSON\n"
             "  --model <gguf>         Model GGUF file\n"
             "\n"
-            "Batch:\n"
-            "  --batch <N>            Batch N sequences (default: 1)\n"
-            "\n"
-            "Output naming: input.json -> input0.json, input1.json, ... (last digit = batch index)\n"
-            "\n"
             "Debug:\n"
             "  --max-seq <N>          KV cache size (default: 8192)\n"
             "  --no-fsm               Disable FSM constrained decoding\n"
@@ -39,7 +34,6 @@ int main(int argc, char ** argv) {
     const char * request_path = NULL;
     const char * dump_logits  = NULL;
     const char * dump_tokens  = NULL;
-    int          batch_size   = 1;
 
     if (argc < 2) {
         usage(argv[0]);
@@ -53,8 +47,6 @@ int main(int argc, char ** argv) {
             request_path = argv[++i];
         } else if (!strcmp(argv[i], "--max-seq") && i + 1 < argc) {
             params.max_seq = atoi(argv[++i]);
-        } else if (!strcmp(argv[i], "--batch") && i + 1 < argc) {
-            batch_size = atoi(argv[++i]);
         } else if (!strcmp(argv[i], "--no-fsm")) {
             params.use_fsm = false;
         } else if (!strcmp(argv[i], "--no-fa")) {
@@ -91,7 +83,16 @@ int main(int argc, char ** argv) {
     }
     request_dump(&req, stderr);
 
-    // Load model
+    // batch_size from JSON (clamped to 1..9)
+    int batch_size = req.batch_size;
+    if (batch_size < 1) {
+        batch_size = 1;
+    } else if (batch_size > 9) {
+        fprintf(stderr, "[Request] WARNING: batch_size %d clamped to 9\n", batch_size);
+        batch_size = 9;
+    }
+
+    // Load model (KV cache sized for request batch)
     params.max_batch = batch_size;
     AceLm * ctx      = ace_lm_load(&params);
     if (!ctx) {

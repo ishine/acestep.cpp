@@ -27,6 +27,7 @@ input="$1"
 
 sed -i \
     -e 's/"audio_cover_strength": *[0-9.]*/"audio_cover_strength": 0.04/' \
+    -e 's/"batch_size": *[0-9]*/"batch_size": 4/' \
     ace-understand.json
 
 ../build/ace-synth \
@@ -35,5 +36,4 @@ sed -i \
     --text-encoder ../models/Qwen3-Embedding-0.6B-Q8_0.gguf \
     --dit ../models/acestep-v15-sft-Q8_0.gguf \
     --vae ../models/vae-BF16.gguf \
-    --batch 4 \
     --wav

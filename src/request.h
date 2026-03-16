@@ -22,7 +22,8 @@ struct AceRequest {
     std::string vocal_language;  // "" = unset
 
     // generation
-    int64_t seed;  // -1 = random
+    int     batch_size;  // 1 (number of variations, matches Python GenerationConfig.batch_size)
+    int64_t seed;        // -1 = random
 
     // LM control
     float       lm_temperature;      // 0.85
