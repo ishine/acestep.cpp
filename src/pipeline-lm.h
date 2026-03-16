@@ -26,12 +26,15 @@ AceLm * ace_lm_load(const AceLmParams * params);
 // Enrich request with metadata, lyrics, audio codes.
 // out[batch_size] allocated by caller, filled with enriched copies of req.
 // dump_logits/dump_tokens: debug output paths (NULL to disable).
-// Returns 0 on success.
+// cancel/cancel_data: abort callback, polled between tokens. NULL = never cancel.
+// Returns 0 on success, -1 on error or cancellation.
 int ace_lm_generate(AceLm *            ctx,
                     const AceRequest * req,
                     int                batch_size,
                     AceRequest *       out,
                     const char *       dump_logits,
-                    const char *       dump_tokens);
+                    const char *       dump_tokens,
+                    bool (*cancel)(void *) = nullptr,
+                    void * cancel_data     = nullptr);
 
 void ace_lm_free(AceLm * ctx);

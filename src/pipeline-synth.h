@@ -41,13 +41,16 @@ AceSynth * ace_synth_load(const AceSynthParams * params);
 // src_len: samples per channel.
 // batch_n: number of variations (1..9).
 // out[batch_n] allocated by caller, filled with audio buffers.
-// Returns 0 on success.
+// cancel/cancel_data: abort callback, polled between DiT steps. NULL = never cancel.
+// Returns 0 on success, -1 on error or cancellation.
 int ace_synth_generate(AceSynth *         ctx,
                        const AceRequest * req,
                        const float *      src_audio,
                        int                src_len,
                        int                batch_n,
-                       AceAudio *         out);
+                       AceAudio *         out,
+                       bool (*cancel)(void *) = nullptr,
+                       void * cancel_data     = nullptr);
 
 void ace_audio_free(AceAudio * audio);
 void ace_synth_free(AceSynth * ctx);

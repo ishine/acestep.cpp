@@ -127,20 +127,22 @@ static void apg_forward(const float *       pred_cond,
 // enc_hidden:       [enc_S * H]  SINGLE encoder output (shared, will be broadcast to N)
 // schedule:         array of num_steps timestep values
 // output:           [N * T * Oc]  generated latents (caller-allocated)
-static void dit_ggml_generate(DiTGGML *           model,
-                              const float *       noise,
-                              const float *       context_latents,
-                              const float *       enc_hidden_data,
-                              int                 enc_S,
-                              int                 T,
-                              int                 N,
-                              int                 num_steps,
-                              const float *       schedule,
-                              float *             output,
-                              float               guidance_scale = 1.0f,
-                              const DebugDumper * dbg            = nullptr,
-                              const float *       context_switch = nullptr,
-                              int                 cover_steps    = -1) {
+static int dit_ggml_generate(DiTGGML *           model,
+                             const float *       noise,
+                             const float *       context_latents,
+                             const float *       enc_hidden_data,
+                             int                 enc_S,
+                             int                 T,
+                             int                 N,
+                             int                 num_steps,
+                             const float *       schedule,
+                             float *             output,
+                             float               guidance_scale = 1.0f,
+                             const DebugDumper * dbg            = nullptr,
+                             const float *       context_switch = nullptr,
+                             int                 cover_steps    = -1,
+                             bool (*cancel)(void *)             = nullptr,
+                             void * cancel_data                 = nullptr) {
     DiTGGMLConfig & c       = model->cfg;
     int             Oc      = c.out_channels;      // 64
     int             ctx_ch  = c.in_channels - Oc;  // 128
@@ -190,7 +192,7 @@ static void dit_ggml_generate(DiTGGML *           model,
     if (!ggml_backend_sched_alloc_graph(model->sched, gf)) {
         fprintf(stderr, "[DiT] FATAL: failed to allocate graph\n");
         ggml_free(ctx);
-        return;
+        return -1;
     }
 
     // Encoder hidden states: upload once (re-uploaded per step only when CFG swaps to null)
@@ -308,6 +310,11 @@ static void dit_ggml_generate(DiTGGML *           model,
     // Flow matching loop
     bool switched_cover = false;
     for (int step = 0; step < num_steps; step++) {
+        if (cancel && cancel(cancel_data)) {
+            fprintf(stderr, "[DiT] Cancelled at step %d/%d\n", step, num_steps);
+            ggml_free(ctx);
+            return -1;
+        }
         float t_curr = schedule[step];
 
         // Cover mode: switch context from cover to non-cover at cover_steps
@@ -493,4 +500,5 @@ static void dit_ggml_generate(DiTGGML *           model,
     }
 
     ggml_free(ctx);
+    return 0;
 }

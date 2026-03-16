@@ -286,7 +286,12 @@ static bool audio_write_wav(const char * path, const float * audio, int T_audio,
 // audio_encode_mp3 is the core: encode planar stereo to MP3 in memory.
 // Does NOT normalize - caller is responsible (audio_write does it).
 // Returns empty string on failure.
-static std::string audio_encode_mp3(const float * audio, int T_audio, int sr, int kbps) {
+static std::string audio_encode_mp3(const float * audio,
+                                    int           T_audio,
+                                    int           sr,
+                                    int           kbps,
+                                    bool (*cancel)(void *) = nullptr,
+                                    void * cancel_data     = nullptr) {
     const float * enc_audio = audio;
     int           enc_T     = T_audio;
     int           enc_sr    = sr;
@@ -323,6 +328,12 @@ static std::string audio_encode_mp3(const float * audio, int T_audio, int sr, in
     // encode in 1-second chunks
     int chunk = enc_sr;
     for (int pos = 0; pos < enc_T; pos += chunk) {
+        if (cancel && cancel(cancel_data)) {
+            fprintf(stderr, "[MP3] Cancelled\n");
+            mp3enc_free(enc);
+            free(resampled);
+            return "";
+        }
         int n = (pos + chunk <= enc_T) ? chunk : (enc_T - pos);
 
         // build planar chunk for this segment

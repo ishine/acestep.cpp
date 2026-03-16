@@ -458,7 +458,9 @@ static int vae_ggml_decode_tiled(VAEGGML *     m,
                                  float *       audio_out,  // [2, T_audio] flat (caller allocs)
                                  int           max_T_audio,
                                  int           chunk_size = 256,
-                                 int           overlap    = 64) {
+                                 int           overlap    = 64,
+                                 bool (*cancel)(void *)   = nullptr,
+                                 void * cancel_data       = nullptr) {
     // Ensure positive stride (matches Python effective_overlap reduction)
     while (chunk_size - 2 * overlap <= 0 && overlap > 0) {
         overlap /= 2;
@@ -479,6 +481,10 @@ static int vae_ggml_decode_tiled(VAEGGML *     m,
     int   audio_write_pos = 0;
 
     for (int i = 0; i < num_steps; i++) {
+        if (cancel && cancel(cancel_data)) {
+            fprintf(stderr, "[VAE] Cancelled at tile %d/%d\n", i, num_steps);
+            return -1;
+        }
         // Core range in latent frames (the part we keep)
         int core_start = i * stride;
         int core_end   = core_start + stride;

@@ -72,6 +72,13 @@ static AceSynth * g_ctx_synth = nullptr;
 static int g_max_batch = 1;
 static int g_mp3_kbps  = 128;
 
+// cancel trampoline: bridges httplib's is_connection_closed to our cancel callback.
+// data points to the std::function<bool()> from httplib::Request.
+static bool server_cancel(void * data) {
+    auto * fn = (const std::function<bool()> *) data;
+    return (*fn)();
+}
+
 // helper: set a JSON error response
 static void json_error(httplib::Response & res, int status, const char * msg) {
     char buf[512];
@@ -126,7 +133,8 @@ static void handle_lm(const httplib::Request & req, httplib::Response & res) {
     int                     rc;
     {
         std::lock_guard<std::mutex> lock(mtx_lm);
-        rc = ace_lm_generate(g_ctx_lm, &ace_req, batch_size, out.data(), NULL, NULL);
+        rc = ace_lm_generate(g_ctx_lm, &ace_req, batch_size, out.data(), NULL, NULL, server_cancel,
+                             (void *) &req.is_connection_closed);
     }
     queue_release();
 
@@ -181,7 +189,7 @@ static void handle_synth(const httplib::Request & req, httplib::Response & res) 
     {
         std::lock_guard<std::mutex> lock(mtx);
         rc = ace_synth_generate(g_ctx_synth, &ace_req, NULL, 0,  // no source audio (v1: no cover/lego)
-                                1, &audio);
+                                1, &audio, server_cancel, (void *) &req.is_connection_closed);
     }
     auto t1 = std::chrono::steady_clock::now();
 
@@ -211,7 +219,8 @@ static void handle_synth(const httplib::Request & req, httplib::Response & res) 
     }
 
     // encode to MP3 in memory
-    std::string mp3 = audio_encode_mp3(audio.samples, audio.n_samples, 48000, g_mp3_kbps);
+    std::string mp3 = audio_encode_mp3(audio.samples, audio.n_samples, 48000, g_mp3_kbps, server_cancel,
+                                       (void *) &req.is_connection_closed);
     ace_audio_free(&audio);
     queue_release();
 

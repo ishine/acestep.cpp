@@ -228,7 +228,9 @@ int ace_synth_generate(AceSynth *         ctx,
                        const float *      src_audio,
                        int                src_len,
                        int                batch_n,
-                       AceAudio *         out) {
+                       AceAudio *         out,
+                       bool (*cancel)(void *),
+                       void * cancel_data) {
     if (!ctx || !req || !out || batch_n < 1 || batch_n > 9) {
         return -1;
     }
@@ -638,9 +640,13 @@ int ace_synth_generate(AceSynth *         ctx,
             have_cover ? " (cover)" : "");
 
     timer.reset();
-    dit_ggml_generate(&ctx->dit, noise.data(), context.data(), enc_hidden.data(), enc_S, T, batch_n, num_steps,
-                      schedule.data(), output.data(), guidance_scale, &dbg,
-                      context_silence.empty() ? nullptr : context_silence.data(), cover_steps);
+    int dit_rc =
+        dit_ggml_generate(&ctx->dit, noise.data(), context.data(), enc_hidden.data(), enc_S, T, batch_n, num_steps,
+                          schedule.data(), output.data(), guidance_scale, &dbg,
+                          context_silence.empty() ? nullptr : context_silence.data(), cover_steps, cancel, cancel_data);
+    if (dit_rc != 0) {
+        return -1;
+    }
     fprintf(stderr, "[DiT] Total generation: %.1f ms (%.1f ms/sample)\n", timer.ms(), timer.ms() / batch_n);
 
     debug_dump_2d(&dbg, "dit_output", output.data(), T, Oc);
@@ -665,8 +671,13 @@ int ace_synth_generate(AceSynth *         ctx,
 
             timer.reset();
             int T_audio = vae_ggml_decode_tiled(&ctx->vae, dit_out, T_latent, audio.data(), T_audio_max,
-                                                ctx->params.vae_chunk, ctx->params.vae_overlap);
+                                                ctx->params.vae_chunk, ctx->params.vae_overlap, cancel, cancel_data);
             if (T_audio < 0) {
+                // check if this was a cancellation or a real error
+                if (cancel && cancel(cancel_data)) {
+                    fprintf(stderr, "[VAE Batch%d] Cancelled\n", b);
+                    return -1;
+                }
                 fprintf(stderr, "[VAE Batch%d] ERROR: decode failed\n", b);
                 out[b].samples     = NULL;
                 out[b].n_samples   = 0;

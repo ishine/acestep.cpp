@@ -201,7 +201,9 @@ static std::vector<std::string> generate_phase1_batch(Qwen3LM *                m
                                                       bool                     lyrics_mode,
                                                       float                    cfg_scale         = 1.0f,
                                                       const std::vector<int> * uncond_tokens     = nullptr,
-                                                      bool                     stop_at_reasoning = false) {
+                                                      bool                     stop_at_reasoning = false,
+                                                      bool (*cancel)(void *)                     = nullptr,
+                                                      void * cancel_data                         = nullptr) {
     int  V       = m->cfg.vocab_size;
     bool use_cfg = cfg_scale > 1.0f && uncond_tokens && !uncond_tokens->empty();
 
@@ -317,6 +319,10 @@ static std::vector<std::string> generate_phase1_batch(Qwen3LM *                m
     }
 
     for (int step = 0; step < max_new_tokens && n_active > 0; step++) {
+        if (cancel && cancel(cancel_data)) {
+            fprintf(stderr, "[Phase1] Cancelled at step %d\n", step);
+            return {};
+        }
         for (int i = 0; i < N; i++) {
             tokens[i] = seqs[i].last_token;
         }
@@ -422,7 +428,9 @@ static std::vector<std::string> run_phase2_batch(Qwen3LM *                      
                                                  long long                      base_seed,
                                                  int                            N,
                                                  float                          cfg_scale,
-                                                 const char *                   negative_prompt) {
+                                                 const char *                   negative_prompt,
+                                                 bool (*cancel)(void *) = nullptr,
+                                                 void * cancel_data     = nullptr) {
     int  V             = m->cfg.vocab_size;
     bool use_cfg       = cfg_scale > 1.0f;
     bool shared_prompt = ((int) aces.size() == 1);
@@ -567,6 +575,10 @@ static std::vector<std::string> run_phase2_batch(Qwen3LM *                      
     }
 
     for (int step = 0; step < max_tokens && n_active > 0; step++) {
+        if (cancel && cancel(cancel_data)) {
+            fprintf(stderr, "[Phase2] Cancelled at step %d\n", step);
+            return {};
+        }
         int current_active = 0;
 
         // 1. DYNAMIC COMPACTION: Loop through all N sequences, but only gather the active ones!
@@ -720,7 +732,9 @@ int ace_lm_generate(AceLm *            ctx,
                     int                batch_size,
                     AceRequest *       out,
                     const char *       dump_logits,
-                    const char *       dump_tokens) {
+                    const char *       dump_tokens,
+                    bool (*cancel)(void *),
+                    void * cancel_data) {
     if (!ctx || !req || !out || batch_size < 1) {
         return -1;
     }
@@ -817,9 +831,12 @@ int ace_lm_generate(AceLm *            ctx,
         fprintf(stderr, "[Fill] lyrics=%s metas=%s | %zu tokens, CFG: %.2f, N=%d\n", need_lyrics ? "generate" : "keep",
                 has_all_metas ? "complete" : "fill gaps", prompt.size(), fill_cfg, batch_size);
 
-        auto phase1_texts = generate_phase1_batch(&ctx->model, &ctx->bpe, prompt, 2048, temperature, fill_top_p,
-                                                  fill_top_k, seed, batch_size, active_fsm, need_lyrics, fill_cfg,
-                                                  uncond.empty() ? nullptr : &uncond, !need_lyrics);
+        auto phase1_texts = generate_phase1_batch(
+            &ctx->model, &ctx->bpe, prompt, 2048, temperature, fill_top_p, fill_top_k, seed, batch_size, active_fsm,
+            need_lyrics, fill_cfg, uncond.empty() ? nullptr : &uncond, !need_lyrics, cancel, cancel_data);
+        if (phase1_texts.empty()) {
+            return -1;
+        }
 
         parse_phase1_into_aces(phase1_texts, ace, aces, seed, "Fill", need_lyrics, req->use_cot_caption);
 
@@ -867,7 +884,10 @@ int ace_lm_generate(AceLm *            ctx,
     std::vector<std::string> batch_codes(batch_size);
     if (!user_has_codes) {
         batch_codes = run_phase2_batch(&ctx->model, ctx->bpe, aces, temperature, top_p, top_k, seed, batch_size,
-                                       cfg_scale, neg_prompt);
+                                       cfg_scale, neg_prompt, cancel, cancel_data);
+        if (batch_codes.empty()) {
+            return -1;
+        }
     } else {
         fprintf(stderr, "[Skip] user audio_codes present, no code generation\n");
     }
