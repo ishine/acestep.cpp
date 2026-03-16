@@ -29,9 +29,9 @@ void request_init(AceRequest * r) {
     r->lm_negative_prompt   = "";
     r->use_cot_caption      = true;
     r->audio_codes          = "";
-    r->inference_steps      = 8;
-    r->guidance_scale       = 0.0f;
-    r->shift                = 3.0f;
+    r->inference_steps      = 0;     // 0 = auto (turbo: 8, base/sft: 50)
+    r->guidance_scale       = 0.0f;  // 0 = auto (1.0 for all models)
+    r->shift                = 0.0f;  // 0 = auto (turbo: 3.0, base/sft: 1.0)
     r->audio_cover_strength = 0.5f;
     r->repainting_start     = -1.0f;
     r->repainting_end       = -1.0f;

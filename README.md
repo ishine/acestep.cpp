@@ -300,6 +300,7 @@ the LLM fills them, or a sensible runtime default is applied.
     "timesignature":        "",
     "vocal_language":       "",
     "seed":                 -1,
+    "batch_size":           1,
     "lm_temperature":       0.85,
     "lm_cfg_scale":         2.0,
     "lm_top_p":             0.9,
@@ -307,9 +308,9 @@ the LLM fills them, or a sensible runtime default is applied.
     "lm_negative_prompt":   "",
     "use_cot_caption":      true,
     "audio_codes":          "",
-    "inference_steps":      8,
+    "inference_steps":      0,
     "guidance_scale":       0.0,
-    "shift":                3.0,
+    "shift":                0.0,
     "audio_cover_strength": 0.5,
     "repainting_start":    -1,
     "repainting_end":      -1,
@@ -430,19 +431,21 @@ phase 1 is skipped and the caption is never touched regardless of this flag.
 
 ### DiT flow matching (ace-synth)
 
-**`inference_steps`** (int, default `8`)
-Number of diffusion denoising steps. Turbo preset: `8`. SFT preset: `50`.
+**`inference_steps`** (int, default `0` = auto)
+Number of diffusion denoising steps. `0` resolves from the loaded model:
+turbo = `8`, base/SFT = `50`.
 
 **`guidance_scale`** (float, default `0.0` = auto)
-CFG scale for the DiT. `0.0` is resolved to `1.0` at runtime (CFG disabled).
+CFG scale for the DiT. `0.0` resolves to `1.0` (CFG disabled).
 Any value > 1.0 on a turbo model is overridden to 1.0 with a warning.
 
-**`shift`** (float, default `3.0`)
+**`shift`** (float, default `0.0` = auto)
 Flow-matching schedule shift. Controls the timestep distribution.
-`shift = s*t / (1 + (s-1)*t)`. Turbo preset: `3.0`. SFT preset: `1.0`.
+`shift = s*t / (1 + (s-1)*t)`. `0.0` resolves from the loaded model:
+turbo = `3.0`, base/SFT = `1.0`.
 
-Turbo preset: `inference_steps=8, shift=3.0` (guidance_scale auto-resolved to 1.0).
-SFT preset: `inference_steps=50, guidance_scale=1.0, shift=1.0`.
+Turbo preset: `inference_steps=8, guidance_scale=1.0, shift=3.0`.
+Base/SFT preset: `inference_steps=50, guidance_scale=1.0, shift=1.0`.
 
 ## ace-lm reference
 

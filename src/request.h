@@ -37,10 +37,10 @@ struct AceRequest {
     // empty = text2music (silence context), non-empty = cover mode
     std::string audio_codes;  // ""
 
-    // DiT control (Python: inference_steps, guidance_scale, shift)
-    int   inference_steps;  // 8
-    float guidance_scale;   // 0.0
-    float shift;            // 3.0
+    // DiT control (0 = auto-detect from model: turbo vs base/sft)
+    int   inference_steps;  // 0 = auto (turbo: 8, base/sft: 50)
+    float guidance_scale;   // 0 = auto (1.0 for all models)
+    float shift;            // 0 = auto (turbo: 3.0, base/sft: 1.0)
 
     // cover mode (active when --src-audio is provided on CLI)
     float audio_cover_strength;  // 0.5 (0-1, fraction of DiT steps using source context)

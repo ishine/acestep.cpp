@@ -318,21 +318,37 @@ int ace_synth_generate(AceSynth *         ctx,
     if (rr.bpm > 0) {
         snprintf(bpm_str, sizeof(bpm_str), "%d", rr.bpm);
     }
-    const char * bpm            = bpm_str;
-    const char * keyscale       = rr.keyscale.empty() ? "N/A" : rr.keyscale.c_str();
-    const char * timesig        = rr.timesignature.empty() ? "N/A" : rr.timesignature.c_str();
-    const char * language       = rr.vocal_language.empty() ? "unknown" : rr.vocal_language.c_str();
-    float        duration       = rr.duration > 0 ? rr.duration : 30.0f;
-    long long    seed           = rr.seed;
-    int          num_steps      = rr.inference_steps > 0 ? rr.inference_steps : 8;
-    float        guidance_scale = rr.guidance_scale;
-    float        shift          = rr.shift > 0 ? rr.shift : 1.0f;
+    const char * bpm      = bpm_str;
+    const char * keyscale = rr.keyscale.empty() ? "N/A" : rr.keyscale.c_str();
+    const char * timesig  = rr.timesignature.empty() ? "N/A" : rr.timesignature.c_str();
+    const char * language = rr.vocal_language.empty() ? "unknown" : rr.vocal_language.c_str();
+    float        duration = rr.duration > 0 ? rr.duration : 30.0f;
+    long long    seed     = rr.seed;
+
+    // Resolve DiT sampling params: 0 = auto-detect from model type.
+    // Turbo: 8 steps, guidance=1.0, shift=3.0
+    // Base/SFT: 50 steps, guidance=1.0, shift=1.0
+    int   num_steps      = rr.inference_steps;
+    float guidance_scale = rr.guidance_scale;
+    float shift          = rr.shift;
+
+    if (num_steps <= 0) {
+        num_steps = ctx->is_turbo ? 8 : 50;
+    }
+    if (num_steps > 100) {
+        fprintf(stderr, "[Pipeline] WARNING: inference_steps %d clamped to 100\n", num_steps);
+        num_steps = 100;
+    }
 
     if (guidance_scale <= 0.0f) {
         guidance_scale = 1.0f;
     } else if (ctx->is_turbo && guidance_scale > 1.0f) {
         fprintf(stderr, "[Pipeline] WARNING: turbo model, forcing guidance_scale=1.0 (was %.1f)\n", guidance_scale);
         guidance_scale = 1.0f;
+    }
+
+    if (shift <= 0.0f) {
+        shift = ctx->is_turbo ? 3.0f : 1.0f;
     }
 
     if (seed < 0) {
