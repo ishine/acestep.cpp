@@ -11,7 +11,7 @@
 #include <string>
 #include <vector>
 
-static void print_usage(const char * prog) {
+static void usage(const char * prog) {
     fprintf(stderr,
             "Usage: %s --request <json...> --text-encoder <gguf> --dit <gguf> --vae <gguf> [options]\n\n"
             "Required:\n"
@@ -39,7 +39,7 @@ static void print_usage(const char * prog) {
 
 int main(int argc, char ** argv) {
     if (argc < 2) {
-        print_usage(argv[0]);
+        usage(argv[0]);
         return 1;
     }
 
@@ -58,58 +58,58 @@ int main(int argc, char ** argv) {
     int                       mp3_kbps       = 128;
 
     for (int i = 1; i < argc; i++) {
-        if (strcmp(argv[i], "--request") == 0) {
+        if (!strcmp(argv[i], "--request")) {
             // Collect all following non-option args
             while (i + 1 < argc && argv[i + 1][0] != '-') {
                 request_paths.push_back(argv[++i]);
             }
-        } else if (strcmp(argv[i], "--text-encoder") == 0 && i + 1 < argc) {
+        } else if (!strcmp(argv[i], "--text-encoder") && i + 1 < argc) {
             text_enc_gguf = argv[++i];
-        } else if (strcmp(argv[i], "--dit") == 0 && i + 1 < argc) {
+        } else if (!strcmp(argv[i], "--dit") && i + 1 < argc) {
             dit_gguf = argv[++i];
-        } else if (strcmp(argv[i], "--vae") == 0 && i + 1 < argc) {
+        } else if (!strcmp(argv[i], "--vae") && i + 1 < argc) {
             vae_gguf = argv[++i];
-        } else if (strcmp(argv[i], "--src-audio") == 0 && i + 1 < argc) {
+        } else if (!strcmp(argv[i], "--src-audio") && i + 1 < argc) {
             src_audio_path = argv[++i];
-        } else if (strcmp(argv[i], "--lora") == 0 && i + 1 < argc) {
+        } else if (!strcmp(argv[i], "--lora") && i + 1 < argc) {
             lora_path = argv[++i];
-        } else if (strcmp(argv[i], "--lora-scale") == 0 && i + 1 < argc) {
+        } else if (!strcmp(argv[i], "--lora-scale") && i + 1 < argc) {
             lora_scale = (float) atof(argv[++i]);
-        } else if (strcmp(argv[i], "--dump") == 0 && i + 1 < argc) {
+        } else if (!strcmp(argv[i], "--dump") && i + 1 < argc) {
             dump_dir = argv[++i];
-        } else if (strcmp(argv[i], "--no-fa") == 0) {
+        } else if (!strcmp(argv[i], "--no-fa")) {
             use_fa = false;
-        } else if (strcmp(argv[i], "--vae-chunk") == 0 && i + 1 < argc) {
+        } else if (!strcmp(argv[i], "--vae-chunk") && i + 1 < argc) {
             vae_chunk = atoi(argv[++i]);
-        } else if (strcmp(argv[i], "--vae-overlap") == 0 && i + 1 < argc) {
+        } else if (!strcmp(argv[i], "--vae-overlap") && i + 1 < argc) {
             vae_overlap = atoi(argv[++i]);
-        } else if (strcmp(argv[i], "--wav") == 0) {
+        } else if (!strcmp(argv[i], "--wav")) {
             output_wav = true;
-        } else if (strcmp(argv[i], "--mp3-bitrate") == 0 && i + 1 < argc) {
+        } else if (!strcmp(argv[i], "--mp3-bitrate") && i + 1 < argc) {
             mp3_kbps = atoi(argv[++i]);
-        } else if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
-            print_usage(argv[0]);
+        } else if (!strcmp(argv[i], "--help") || !strcmp(argv[i], "-h")) {
+            usage(argv[0]);
             return 0;
         } else {
             fprintf(stderr, "Unknown option: %s\n", argv[i]);
-            print_usage(argv[0]);
+            usage(argv[0]);
             return 1;
         }
     }
 
     if (request_paths.empty()) {
         fprintf(stderr, "[CLI] ERROR: --request required\n");
-        print_usage(argv[0]);
+        usage(argv[0]);
         return 1;
     }
     if (!dit_gguf) {
         fprintf(stderr, "[CLI] ERROR: --dit required\n");
-        print_usage(argv[0]);
+        usage(argv[0]);
         return 1;
     }
     if (!text_enc_gguf) {
         fprintf(stderr, "[CLI] ERROR: --text-encoder required\n");
-        print_usage(argv[0]);
+        usage(argv[0]);
         return 1;
     }
 

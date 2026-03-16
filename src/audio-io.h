@@ -10,6 +10,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
+#include <string>
 
 // wav.h: WAV reader (returns interleaved, we deinterleave below)
 #include "wav.h"
@@ -282,7 +283,10 @@ static bool audio_write_wav(const char * path, const float * audio, int T_audio,
 // Encode planar stereo float to MP3.
 // sr must be 32000, 44100, or 48000 (MP3 MPEG1 rates).
 // If sr is unsupported, resamples to 44100 first.
-static bool audio_write_mp3(const char * path, const float * audio, int T_audio, int sr, int kbps) {
+// audio_encode_mp3 is the core: encode planar stereo to MP3 in memory.
+// Does NOT normalize - caller is responsible (audio_write does it).
+// Returns empty string on failure.
+static std::string audio_encode_mp3(const float * audio, int T_audio, int sr, int kbps) {
     const float * enc_audio = audio;
     int           enc_T     = T_audio;
     int           enc_sr    = sr;
@@ -294,7 +298,7 @@ static bool audio_write_mp3(const char * path, const float * audio, int T_audio,
         resampled = audio_resample(audio, T_audio, sr, 44100, 2, &T_rs);
         if (!resampled) {
             fprintf(stderr, "[Audio-resample] resample failed\n");
-            return false;
+            return "";
         }
         fprintf(stderr, "[Audio-resample] %d Hz -> 44100 Hz (%d -> %d samples)\n", sr, T_audio, T_rs);
         enc_audio = resampled;
@@ -306,25 +310,18 @@ static bool audio_write_mp3(const char * path, const float * audio, int T_audio,
     if (!enc) {
         fprintf(stderr, "[Audio] mp3enc_init failed: %d Hz, %d kbps\n", enc_sr, kbps);
         free(resampled);
-        return false;
+        return "";
     }
 
-    FILE * fp = fopen(path, "wb");
-    if (!fp) {
-        fprintf(stderr, "[Audio] cannot open %s for writing\n", path);
-        mp3enc_free(enc);
-        free(resampled);
-        return false;
-    }
+    std::string out;
+    float       duration = (float) enc_T / (float) enc_sr;
+    out.reserve((size_t) ((float) kbps * 128.0f * duration));  // rough: kbps*1000/8*dur
 
-    float duration = (float) enc_T / (float) enc_sr;
     fprintf(stderr, "[MP3] encoding %.1fs @ %d kbps, %d Hz stereo\n", duration, kbps, enc_sr);
-
     clock_t t_start = clock();
 
-    // encode in 1-second chunks to keep memory usage low
-    int chunk   = enc_sr;
-    int written = 0;
+    // encode in 1-second chunks
+    int chunk = enc_sr;
     for (int pos = 0; pos < enc_T; pos += chunk) {
         int n = (pos + chunk <= enc_T) ? chunk : (enc_T - pos);
 
@@ -335,26 +332,41 @@ static bool audio_write_mp3(const char * path, const float * audio, int T_audio,
 
         int             out_size = 0;
         const uint8_t * mp3      = mp3enc_encode(enc, buf, n, &out_size);
-        fwrite(mp3, 1, (size_t) out_size, fp);
-        written += out_size;
+        out.append((const char *) mp3, (size_t) out_size);
         free(buf);
     }
 
     int             flush_size = 0;
     const uint8_t * flush_data = mp3enc_flush(enc, &flush_size);
-    fwrite(flush_data, 1, (size_t) flush_size, fp);
-    written += flush_size;
+    out.append((const char *) flush_data, (size_t) flush_size);
 
     float encode_ms = (float) (clock() - t_start) * 1000.0f / (float) CLOCKS_PER_SEC;
     float realtime  = (encode_ms > 0.0f) ? (duration * 1000.0f / encode_ms) : 0.0f;
 
-    fclose(fp);
     mp3enc_free(enc);
     free(resampled);
 
-    float ratio = (enc_T > 0) ? (float) (enc_T * 2 * 2) / (float) written : 0.0f;
-    fprintf(stderr, "[MP3] wrote %s: %d bytes (%.1f:1), %.0f ms (%.2fx realtime)\n", path, written, ratio, encode_ms,
-            realtime);
+    float ratio = (enc_T > 0) ? (float) (enc_T * 2 * 2) / (float) out.size() : 0.0f;
+    fprintf(stderr, "[MP3] %zu bytes (%.1f:1), %.0f ms (%.2fx realtime)\n", out.size(), ratio, encode_ms, realtime);
+    return out;
+}
+
+// Write planar stereo audio to MP3 file. Thin wrapper around audio_encode_mp3.
+static bool audio_write_mp3(const char * path, const float * audio, int T_audio, int sr, int kbps) {
+    std::string mp3 = audio_encode_mp3(audio, T_audio, sr, kbps);
+    if (mp3.empty()) {
+        return false;
+    }
+
+    FILE * fp = fopen(path, "wb");
+    if (!fp) {
+        fprintf(stderr, "[Audio] cannot open %s for writing\n", path);
+        return false;
+    }
+    fwrite(mp3.data(), 1, mp3.size(), fp);
+    fclose(fp);
+
+    fprintf(stderr, "[MP3] wrote %s\n", path);
     return true;
 }
 

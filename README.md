@@ -25,7 +25,7 @@ cmake .. -DGGML_VULKAN=ON
 cmake --build . --config Release -j$(nproc)
 ```
 
-Builds six binaries: `ace-lm` (LLM), `ace-synth` (DiT + VAE), `ace-understand` (reverse: audio -> metadata), `neural-codec` (VAE encode/decode), `mp3-codec` (MP3 encoder/decoder) and `quantize` (GGUF requantizer).
+Builds seven binaries: `ace-lm` (LLM), `ace-synth` (DiT + VAE), `ace-server` (HTTP server), `ace-understand` (reverse: audio -> metadata), `neural-codec` (VAE encode/decode), `mp3-codec` (MP3 encoder/decoder) and `quantize` (GGUF requantizer).
 
 ## Models
 
@@ -179,6 +179,8 @@ cd examples
 ./partial.sh          # caption + lyrics + duration
 ./full.sh             # all metadata provided
 ./dit-only.sh         # skip LLM, DiT from noise
+./server.sh           # start HTTP server (LM + synth, batch=2)
+./client.sh           # test server (2 variations via /lm + /synth)
 ```
 
 Each example has a `-sft` variant (SFT model, 50 steps, CFG 1.0)
@@ -518,6 +520,80 @@ When `--src-audio` is provided, the source audio (WAV or MP3, any sample rate)
 is resampled to 48kHz, VAE-encoded once and injected as DiT context for every
 request. `audio_cover_strength` in the JSON controls how many steps use the
 source (default 0.5).
+
+## ace-server reference
+
+HTTP server exposing the same pipelines as `ace-lm` and `ace-synth` over
+two POST endpoints. Models are loaded once at startup. One binary, one port.
+
+```
+Usage: ace-server [options]
+
+LM model (optional, enables POST /lm):
+  --lm-model <gguf>         LM GGUF file
+  --lm-max-seq <N>          KV cache size (default: 8192)
+
+Synth models (enables POST /synth):
+  --text-encoder <gguf>     Text encoder GGUF file
+  --dit <gguf>              DiT GGUF file
+  --vae <gguf>              VAE GGUF file
+
+LoRA:
+  --lora <path>             LoRA safetensors file or directory
+  --lora-scale <float>      LoRA scaling factor (default: 1.0)
+
+VAE tiling (memory control):
+  --vae-chunk <N>           Latent frames per tile (default: 256)
+  --vae-overlap <N>         Overlap frames per side (default: 64)
+
+Output:
+  --mp3-bitrate <kbps>      MP3 bitrate (default: 128)
+
+Server:
+  --host <addr>             Listen address (default: 127.0.0.1)
+  --port <N>                Listen port (default: 8080)
+  --max-batch <N>           LM batch pre-alloc (default: 1)
+  --max-queue <N>           Global queue depth (default: 4)
+  --parallelize             Allow LM + synth concurrently
+
+Debug:
+  --no-fsm                  Disable FSM constrained decoding
+  --no-fa                   Disable flash attention
+```
+
+At least one pipeline must be loaded. Both can be loaded in the same
+process if the GPU has enough VRAM for all models.
+
+### Endpoints
+
+**POST /lm** accepts an AceRequest JSON body, runs the LM pipeline, and
+returns a JSON array of enriched requests (`Content-Type: application/json`).
+`batch_size` in the input controls the array length (clamped to `1..max_batch`).
+Returns 501 if no LM model is loaded.
+
+**POST /synth** accepts an AceRequest JSON body (typically one element
+from the `/lm` output array), runs the synth pipeline, and returns raw
+MP3 bytes (`Content-Type: audio/mpeg`). Always generates one track per
+request. Response headers: `X-Seed`, `X-Duration`, `X-Compute-Ms`.
+Returns 501 if no synth models are loaded.
+
+**GET /health** returns server status:
+`{"status":"ok","lm_loaded":bool,"synth_loaded":bool,"queue":N,"max_queue":N,"parallelize":bool}`
+
+Error responses are JSON: `{"error":"message"}` with 400, 500, 501, or
+503 status. 503 includes `Retry-After` header and queue counts.
+
+### Concurrency
+
+By default, LM and synth share a single mutex (serial mode). Only one
+pipeline runs at a time. Use `--parallelize` to give each pipeline its own
+mutex, allowing LM and synth to run concurrently on GPUs with enough VRAM.
+
+A global queue tracks total requests in flight (waiting + running). When
+full, the server returns 503 with a `Retry-After` header and queue status
+in the JSON body. Clients can poll `/health` to monitor queue depth.
+
+Request bodies are limited to 100 KB (a typical request is under 10 KB).
 
 ## neural-codec reference
 

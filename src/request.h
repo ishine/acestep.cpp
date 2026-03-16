@@ -65,8 +65,15 @@ void request_init(AceRequest * r);
 // Returns false on file error or malformed JSON.
 bool request_parse(AceRequest * r, const char * path);
 
+// Parse JSON string into struct. Missing fields keep their defaults.
+// Returns false on malformed JSON.
+bool request_parse_json(AceRequest * r, const char * json);
+
 // Write struct to JSON file (overwrites). Returns false on file error.
 bool request_write(const AceRequest * r, const char * path);
+
+// Serialize struct to JSON string.
+std::string request_to_json(const AceRequest * r);
 
 // Dump human-readable summary to stream (debug)
 void request_dump(const AceRequest * r, FILE * f);

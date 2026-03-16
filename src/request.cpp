@@ -255,18 +255,13 @@ static std::string read_file(const char * path) {
 }
 
 // Public API
-bool request_parse(AceRequest * r, const char * path) {
+
+// Core parser: takes a raw JSON string. Used by the server directly.
+bool request_parse_json(AceRequest * r, const char * json) {
     request_init(r);
 
-    std::string json = read_file(path);
-    if (json.empty()) {
-        fprintf(stderr, "[Request] ERROR: cannot read %s\n", path);
-        return false;
-    }
-
     std::vector<JsonPair> pairs;
-    if (!parse_json_flat(json.c_str(), &pairs)) {
-        fprintf(stderr, "[Request] ERROR: malformed JSON in %s\n", path);
+    if (!parse_json_flat(json, &pairs)) {
         return false;
     }
 
@@ -330,7 +325,23 @@ bool request_parse(AceRequest * r, const char * path) {
         }
     }
 
-    fprintf(stderr, "[Request] parsed %s (%zu fields)\n", path, pairs.size());
+    return true;
+}
+
+// File wrapper: reads JSON from disk, then delegates to request_parse_json.
+bool request_parse(AceRequest * r, const char * path) {
+    std::string json = read_file(path);
+    if (json.empty()) {
+        fprintf(stderr, "[Request] ERROR: cannot read %s\n", path);
+        return false;
+    }
+
+    if (!request_parse_json(r, json.c_str())) {
+        fprintf(stderr, "[Request] ERROR: malformed JSON in %s\n", path);
+        return false;
+    }
+
+    fprintf(stderr, "[Request] parsed %s\n", path);
     return true;
 }
 
@@ -373,6 +384,65 @@ bool request_write(const AceRequest * r, const char * path) {
     fclose(f);
     fprintf(stderr, "[Request] wrote %s\n", path);
     return true;
+}
+
+std::string request_to_json(const AceRequest * r) {
+    std::string s;
+    s.reserve(2048);
+    char buf[256];
+
+    s += "{\n";
+    s += "  \"caption\": \"" + json_escape(r->caption) + "\",\n";
+    s += "  \"lyrics\": \"" + json_escape(r->lyrics) + "\",\n";
+
+    snprintf(buf, sizeof(buf), "  \"bpm\": %d,\n", r->bpm);
+    s += buf;
+    snprintf(buf, sizeof(buf), "  \"duration\": %.1f,\n", r->duration);
+    s += buf;
+
+    s += "  \"keyscale\": \"" + json_escape(r->keyscale) + "\",\n";
+    s += "  \"timesignature\": \"" + json_escape(r->timesignature) + "\",\n";
+    s += "  \"vocal_language\": \"" + json_escape(r->vocal_language) + "\",\n";
+
+    snprintf(buf, sizeof(buf), "  \"seed\": %lld,\n", (long long) r->seed);
+    s += buf;
+    snprintf(buf, sizeof(buf), "  \"batch_size\": %d,\n", r->batch_size);
+    s += buf;
+    snprintf(buf, sizeof(buf), "  \"lm_temperature\": %.2f,\n", r->lm_temperature);
+    s += buf;
+    snprintf(buf, sizeof(buf), "  \"lm_cfg_scale\": %.1f,\n", r->lm_cfg_scale);
+    s += buf;
+    snprintf(buf, sizeof(buf), "  \"lm_top_p\": %.2f,\n", r->lm_top_p);
+    s += buf;
+    snprintf(buf, sizeof(buf), "  \"lm_top_k\": %d,\n", r->lm_top_k);
+    s += buf;
+
+    s += "  \"lm_negative_prompt\": \"" + json_escape(r->lm_negative_prompt) + "\",\n";
+    s += "  \"use_cot_caption\": ";
+    s += (r->use_cot_caption ? "true" : "false");
+    s += ",\n";
+
+    snprintf(buf, sizeof(buf), "  \"inference_steps\": %d,\n", r->inference_steps);
+    s += buf;
+    snprintf(buf, sizeof(buf), "  \"guidance_scale\": %.1f,\n", r->guidance_scale);
+    s += buf;
+    snprintf(buf, sizeof(buf), "  \"shift\": %.1f,\n", r->shift);
+    s += buf;
+    snprintf(buf, sizeof(buf), "  \"audio_cover_strength\": %.2f,\n", r->audio_cover_strength);
+    s += buf;
+    snprintf(buf, sizeof(buf), "  \"repainting_start\": %.1f,\n", r->repainting_start);
+    s += buf;
+    snprintf(buf, sizeof(buf), "  \"repainting_end\": %.1f,\n", r->repainting_end);
+    s += buf;
+
+    if (!r->lego.empty()) {
+        s += "  \"lego\": \"" + json_escape(r->lego) + "\",\n";
+    }
+    // audio_codes last (no trailing comma)
+    s += "  \"audio_codes\": \"" + json_escape(r->audio_codes) + "\"\n";
+    s += "}";
+
+    return s;
 }
 
 void request_dump(const AceRequest * r, FILE * f) {

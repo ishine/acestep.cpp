@@ -32,6 +32,9 @@ endif()
 # ggml as subdirectory, inherits GGML_CUDA, GGML_METAL, etc. from cmake flags
 add_subdirectory(ggml)
 
+# cpp-httplib (HTTP server library, used by ace-server)
+add_subdirectory(vendor/cpp-httplib)
+
 # Shared compile options and ggml linkage
 macro(link_ggml_backends target)
     target_include_directories(${target} PRIVATE
@@ -89,6 +92,11 @@ link_ggml_backends(ace-synth)
 add_executable(ace-lm tools/ace-lm.cpp)
 target_link_libraries(ace-lm PRIVATE acestep-core)
 link_ggml_backends(ace-lm)
+
+# ace-server: HTTP server (LM + synth endpoints)
+add_executable(ace-server tools/ace-server.cpp)
+target_link_libraries(ace-server PRIVATE acestep-core httplib)
+link_ggml_backends(ace-server)
 
 add_executable(ace-understand tools/ace-understand.cpp)
 target_link_libraries(ace-understand PRIVATE acestep-core)

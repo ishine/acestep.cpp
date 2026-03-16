@@ -1,0 +1,11 @@
+#!/bin/bash
+
+set -eu
+
+../build/ace-server \
+    --port 8085 \
+    --lm-model ../models/acestep-5Hz-lm-4B-Q8_0.gguf \
+    --text-encoder ../models/Qwen3-Embedding-0.6B-Q8_0.gguf \
+    --dit ../models/acestep-v15-turbo-Q8_0.gguf \
+    --vae ../models/vae-BF16.gguf \
+    --max-batch 2
