@@ -33,16 +33,29 @@ static ggml_backend_t cpu_backend_new(void) {
     if (n_threads < 1) {
         n_threads = 1;
     }
-    char params[64];
-    snprintf(params, sizeof(params), "n_threads=%d", n_threads);
     ggml_backend_dev_t cpu_dev = ggml_backend_dev_by_type(GGML_BACKEND_DEVICE_TYPE_CPU);
+    ggml_backend_t     cpu    = NULL;
     if (cpu_dev) {
-        ggml_backend_t cpu = ggml_backend_dev_init(cpu_dev, params);
-        if (cpu) {
-            return cpu;
+        cpu = ggml_backend_dev_init(cpu_dev, NULL);
+    }
+    if (!cpu) {
+        cpu = ggml_backend_init_by_type(GGML_BACKEND_DEVICE_TYPE_CPU, NULL);
+    }
+    if (!cpu) {
+        return NULL;
+    }
+
+    // ggml_backend_cpu_device_init_backend ignores params, so set threads
+    // explicitly via the proc address API (same approach as llama.cpp).
+    ggml_backend_dev_t dev = ggml_backend_get_device(cpu);
+    ggml_backend_reg_t reg = dev ? ggml_backend_dev_backend_reg(dev) : NULL;
+    if (reg) {
+        auto set_fn = (ggml_backend_set_n_threads_t) ggml_backend_reg_get_proc_address(reg, "ggml_backend_set_n_threads");
+        if (set_fn) {
+            set_fn(cpu, n_threads);
         }
     }
-    return ggml_backend_init_by_type(GGML_BACKEND_DEVICE_TYPE_CPU, params);
+    return cpu;
 }
 
 // Initialize backends: load all available (CUDA, Metal, Vulkan...),
