@@ -1,7 +1,12 @@
 <script lang="ts">
 	import { RotateCcw, Download, FolderOpen } from '@lucide/svelte';
 	import { app, toast } from '../lib/state.svelte.js';
-	import { lmGenerate, synthGenerate, understandAudio } from '../lib/api.js';
+	import {
+		lmGenerate,
+		synthGenerate,
+		synthGenerateWithAudio,
+		understandAudio
+	} from '../lib/api.js';
 	import { putSong } from '../lib/db.js';
 	import type { AceRequest, Song } from '../lib/types.js';
 
@@ -10,7 +15,6 @@
 
 	let d = $derived(app.health?.default);
 	let maxBatch = $derived(Number(app.health?.cli?.max_batch) || 1);
-	let defaultBatch = $derived(Math.min(2, maxBatch));
 
 	function reset() {
 		app.name = '';
@@ -148,8 +152,10 @@
 		if (guidance_scale != null) out.guidance_scale = guidance_scale;
 		const shift = num(r.shift);
 		if (shift != null) out.shift = shift;
+		const audio_cover_strength = num(r.audio_cover_strength);
+		if (audio_cover_strength != null) out.audio_cover_strength = audio_cover_strength;
 		const lm_batch_size = num(r.lm_batch_size);
-		out.lm_batch_size = lm_batch_size != null && lm_batch_size >= 1 ? lm_batch_size : defaultBatch;
+		if (lm_batch_size != null && lm_batch_size >= 1) out.lm_batch_size = lm_batch_size;
 		const synth_batch_size = num(r.synth_batch_size);
 		if (synth_batch_size != null && synth_batch_size >= 1) out.synth_batch_size = synth_batch_size;
 		return out;
@@ -172,6 +178,7 @@
 			guidance_scale: app.request.guidance_scale,
 			shift: app.request.shift,
 			seed: app.request.seed,
+			audio_cover_strength: app.request.audio_cover_strength,
 			synth_batch_size: app.request.synth_batch_size
 		};
 		app.pendingIndex = index;
@@ -204,6 +211,7 @@
 					guidance_scale: app.request.guidance_scale,
 					shift: app.request.shift,
 					seed: app.request.seed,
+					audio_cover_strength: app.request.audio_cover_strength,
 					synth_batch_size: app.request.synth_batch_size
 				};
 			}
@@ -236,6 +244,8 @@
 			if (cfg != null) synthParams.guidance_scale = cfg;
 			const sh = num(app.request.shift);
 			if (sh != null) synthParams.shift = sh;
+			const acs = num(app.request.audio_cover_strength);
+			if (acs != null) synthParams.audio_cover_strength = acs;
 
 			// resolve seeds, build server payload and local expanded list for SongCard mapping.
 			// server receives synth_batch_size and expands internally (groups by T for GPU batch).
@@ -250,7 +260,12 @@
 				}
 			}
 
-			const blobs = await synthGenerate(toSend, app.format);
+			// find ref audio if selected
+			const refSong = app.refSongId != null ? app.songs.find((s) => s.id === app.refSongId) : null;
+
+			const blobs = refSong
+				? await synthGenerateWithAudio(toSend, refSong.audio, app.format)
+				: await synthGenerate(toSend, app.format);
 			const now = Date.now();
 			const baseName = app.name || 'Untitled';
 			for (let i = blobs.length - 1; i >= 0; i--) {
@@ -415,7 +430,7 @@
 				min="1"
 				max={maxBatch}
 				bind:value={app.request.lm_batch_size}
-				placeholder={String(defaultBatch)}
+				placeholder="1"
 			/></label
 		>
 		<span class="selector-label">Pending</span>
@@ -463,6 +478,13 @@
 						type="text"
 						placeholder={ph(d?.inference_steps)}
 						bind:value={app.request.inference_steps}
+					/></label
+				>
+				<label
+					>Cover strength <input
+						type="text"
+						placeholder={ph(d?.audio_cover_strength)}
+						bind:value={app.request.audio_cover_strength}
 					/></label
 				>
 				<label

@@ -211,7 +211,7 @@
 	.songs-panel {
 		flex: 1;
 	}
-	@media (max-width: 700px) {
+	@media (max-width: 800px) {
 		main {
 			flex-direction: column;
 		}

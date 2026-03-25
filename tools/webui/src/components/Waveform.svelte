@@ -17,6 +17,7 @@
 	let url: string | null = null;
 	let raf = 0;
 	let dragging = false;
+	let lastSeek = -1;
 	let cw = 0;
 	let ch = 0;
 
@@ -35,13 +36,15 @@
 			time = 0;
 			draw(0);
 		});
+		player.addEventListener('loadedmetadata', () => {
+			dur = player!.duration;
+		});
 
 		const actx = new AudioContext();
 		audio
 			.arrayBuffer()
 			.then((buf) => actx.decodeAudioData(buf))
 			.then((decoded) => {
-				dur = decoded.duration;
 				peaks = computePeaks(decoded, cw);
 				draw(0);
 				actx.close();
@@ -169,6 +172,8 @@
 		if (!player || !canvas || dur <= 0) return;
 		const rect = canvas.getBoundingClientRect();
 		const x = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+		if (x === lastSeek) return;
+		lastSeek = x;
 		player.currentTime = x * dur;
 		time = player.currentTime;
 		draw(x);
@@ -176,6 +181,7 @@
 
 	function onPointerDown(e: PointerEvent) {
 		dragging = true;
+		lastSeek = -1;
 		canvas.setPointerCapture(e.pointerId);
 		seekTo(e.clientX);
 	}

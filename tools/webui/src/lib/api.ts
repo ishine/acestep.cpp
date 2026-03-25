@@ -46,6 +46,35 @@ export async function synthGenerate(reqs: AceRequest[], format: string): Promise
 	return parseMultipart(new Uint8Array(await res.arrayBuffer()), match[1], mime);
 }
 
+// POST synth (multipart): request(s) + source audio -> audio blob(s).
+// used when a reference audio is selected for cover/repaint.
+export async function synthGenerateWithAudio(
+	reqs: AceRequest[],
+	audio: Blob,
+	format: string
+): Promise<Blob[]> {
+	const url = format === 'wav' ? 'synth?wav=1' : 'synth';
+	const body = reqs.length === 1 ? JSON.stringify(reqs[0]) : JSON.stringify(reqs);
+	const form = new FormData();
+	form.append('request', new Blob([body], { type: 'application/json' }), 'request.json');
+	form.append('audio', audio, 'input.audio');
+	const res = await fetch(url, { method: 'POST', body: form });
+	if (res.status === 503) throw new Error('Server busy');
+	if (!res.ok) {
+		const err = await res.json().catch(() => ({ error: res.statusText }));
+		throw new Error(err.error || res.statusText);
+	}
+
+	const ct = res.headers.get('Content-Type') || '';
+	if (!ct.startsWith('multipart/')) {
+		return [await res.blob()];
+	}
+	const match = ct.match(/boundary=([^\s;]+)/);
+	if (!match) throw new Error('Missing boundary in multipart response');
+	const mime = format === 'wav' ? 'audio/wav' : 'audio/mpeg';
+	return parseMultipart(new Uint8Array(await res.arrayBuffer()), match[1], mime);
+}
+
 // parse multipart/mixed binary response into Blob[].
 // each part has only Content-Type header + raw audio body.
 function parseMultipart(buf: Uint8Array, boundary: string, mime: string): Blob[] {

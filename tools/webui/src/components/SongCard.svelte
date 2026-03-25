@@ -11,6 +11,12 @@
 	let time = $state(0);
 	let dur = $state(0);
 
+	let isRef = $derived(app.refSongId === song.id);
+
+	function toggleRef() {
+		app.refSongId = isRef ? null : (song.id ?? null);
+	}
+
 	function toggle() {
 		playing = !playing;
 	}
@@ -35,6 +41,7 @@
 
 	async function remove() {
 		if (song.id == null) return;
+		if (app.refSongId === song.id) app.refSongId = null;
 		await deleteSong(song.id);
 		const idx = app.songs.findIndex((s) => s.id === song.id);
 		if (idx >= 0) app.songs.splice(idx, 1);
@@ -75,6 +82,13 @@
 		<span class="format-badge">{song.format.toUpperCase()}</span>
 		<span class="timecode">{fmtPos(time)} / {fmtDur(dur)}</span>
 		<div class="card-actions">
+			<input
+				type="checkbox"
+				class="ref-check"
+				checked={isRef}
+				onchange={toggleRef}
+				title="Use as reference audio"
+			/>
 			<button class="icon-btn" onclick={load} title="Edit"><Pencil size={14} /></button>
 			<button class="icon-btn" onclick={downloadAudio} title="Download"
 				><Download size={14} /></button
@@ -138,5 +152,9 @@
 	}
 	.icon-btn:hover {
 		color: var(--focus);
+	}
+	.ref-check {
+		cursor: pointer;
+		accent-color: var(--focus);
 	}
 </style>

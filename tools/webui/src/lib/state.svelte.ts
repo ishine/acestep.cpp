@@ -41,7 +41,8 @@ export const app = $state({
 	health: null as AceHealth | null,
 	toast: '' as string,
 	pendingRequests: [] as AceRequest[],
-	pendingIndex: 0
+	pendingIndex: 0,
+	refSongId: null as number | null
 });
 
 let toastTimer = 0;
