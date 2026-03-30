@@ -8,3 +8,5 @@ cd build
 
 cmake .. -DGGML_CUDA=ON
 cmake --build . --config Release -j %NUMBER_OF_PROCESSORS%
+
+cd ..
