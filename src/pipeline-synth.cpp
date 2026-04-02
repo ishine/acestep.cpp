@@ -141,7 +141,7 @@ AceSynth * ace_synth_load(const AceSynthParams * params) {
         ctx->have_vae = true;
     }
 
-    // 1. Load BPE tokenizer
+    // BPE tokenizer
     timer.reset();
     if (!load_bpe_from_gguf(&ctx->bpe, params->text_encoder_path)) {
         fprintf(stderr, "[BPE] FATAL: failed to load tokenizer from %s\n", params->text_encoder_path);
@@ -154,7 +154,7 @@ AceSynth * ace_synth_load(const AceSynthParams * params) {
     }
     fprintf(stderr, "[Load] BPE tokenizer: %.1f ms\n", timer.ms());
 
-    // 4. Text encoder forward (caption only)
+    // Text encoder forward (caption only)
     timer.reset();
     ctx->text_enc = {};
     qwen3_init_backend(&ctx->text_enc);
@@ -172,7 +172,7 @@ AceSynth * ace_synth_load(const AceSynthParams * params) {
     }
     fprintf(stderr, "[Load] TextEncoder: %.1f ms\n", timer.ms());
 
-    // 6. Condition encoder forward
+    // Condition encoder forward
     timer.reset();
     ctx->cond_enc = {};
     cond_ggml_init_backend(&ctx->cond_enc);
@@ -245,12 +245,12 @@ int ace_synth_generate(AceSynth *         ctx,
     s.ctx_ch = ctx->ctx_ch;
     debug_init(&s.dbg, ctx->params.dump_dir);
 
-    // 1. Source audio -> VAE latents
+    // VAE encode source audio
     if (ops_encode_src(ctx, src_audio, src_len, s) != 0) {
         return -1;
     }
 
-    // 2. Shared request + mode flags + use_source_context.
+    // Shared request, mode flags, use_source_context
     // Shared params from first request (mode, duration, DiT settings).
     // Per-batch: caption, lyrics, metadata, audio_codes, and seed come from reqs[b].
     // seed must be resolved (non-negative) before calling this function.
@@ -264,27 +264,34 @@ int ace_synth_generate(AceSynth *         ctx,
         (s.task == TASK_LEGO && s.rr.repainting_start >= 0.0f && s.rr.repainting_end > s.rr.repainting_start);
     s.rs                 = s.rr.repainting_start;
     s.re                 = s.rr.repainting_end;
-    // use_source_context must be set before ops_resolve_T (step 5) which uses it for T.
-    // Step 6 refines it per task; this first pass covers all source-context tasks.
+    // use_source_context must be set before ops_resolve_T which uses it for T.
+    // Mode routing refines it per task; this first pass covers all source-context tasks.
     s.use_source_context = (s.task == TASK_COVER || s.task == TASK_REPAINT || s.task == TASK_LEGO ||
                             s.task == TASK_EXTRACT || s.task == TASK_COMPLETE);
     // non-cover encoding pass (for audio_cover_strength < 1.0 switching) always uses text2music.
     s.nc_instruction_str = DIT_INSTR_TEXT2MUSIC;
 
-    // 3. Shared DiT params (steps, guidance, shift) + audio_codes scan
+    // Resolve DiT params (steps, guidance, shift) and scan audio codes
     if (ops_resolve_params(ctx, reqs, batch_n, s) != 0) {
         return -1;
     }
 
-    // 4. Timestep schedule
+    // Promote text2music to cover when codes present (Python _resolve_generate_music_task)
+    // DiT was trained with the cover instruction for codes guided generation.
+    if (s.task == TASK_TEXT2MUSIC && s.have_codes) {
+        s.task               = std::string(TASK_COVER);
+        s.use_source_context = true;
+    }
+
+    // Timestep schedule
     ops_build_schedule(s);
 
-    // 5. Latent frame count T
+    // Resolve latent frame count T
     if (ops_resolve_T(ctx, s) != 0) {
         return -1;
     }
 
-    // 6. Mode routing: per-task setup + instruction + use_source_context + validation.
+    // Mode routing: per-task instruction, use_source_context, validation.
     //    All task knowledge lives here. Adding a mode = adding one branch.
     //    Track name is UPPERCASE in instructions (matches Python task_utils.py).
     {
@@ -375,47 +382,39 @@ int ace_synth_generate(AceSynth *         ctx,
                 fprintf(stderr, "[Pipeline] WARNING: complete requires base model, turbo output incoherent\n");
             }
         }
-        // text2music with LM-generated codes: override to cover instruction.
-        // DiT sees decoded latents in context and was trained with this instruction.
-        if (s.task == TASK_TEXT2MUSIC && s.have_codes) {
-            s.use_source_context = true;
-            s.instruction_str    = DIT_INSTR_COVER;
-        }
-        // validation: tasks that need source audio
-        if (s.use_source_context && !s.have_cover) {
-            fprintf(stderr, "[%s] ERROR: requires source audio\n", s.task.c_str());
+        // validation: tasks that need source audio or codes
+        if (s.use_source_context && !s.have_cover && !s.have_codes) {
+            fprintf(stderr, "[%s] ERROR: requires source audio or audio codes\n", s.task.c_str());
             return -1;
         }
     }
 
-    // 7. (instruction resolved in step 6)
-
-    // 8. Timbre features from ref_audio (independent of task)
+    // Encode timbre from ref_audio (independent of task)
     ops_encode_timbre(ctx, ref_audio, ref_len, s);
 
-    // 9. Per-batch text + lyric encoding (main + optional non-cover pass)
+    // Per-batch text + lyric encoding (main + optional non-cover pass)
     ops_encode_text(ctx, reqs, batch_n, s);
 
-    // 10. DiT context tensor [batch_n, T, ctx_ch] = src(64) | mask(64)
+    // Build DiT context [batch_n, T, ctx_ch] = src(64) | mask(64)
     if (ops_build_context(ctx, reqs, batch_n, s) != 0) {
         return -1;
     }
 
-    // 11. Silence context for audio_cover_strength switching (cover only)
+    // Silence context for audio_cover_strength switching (cover only)
     ops_build_context_silence(ctx, batch_n, s);
 
-    // 12. Cover noise blend (cover_noise_strength > 0)
+    // Cover noise blend (cover_noise_strength > 0)
     ops_blend_cover_noise(ctx, batch_n, s);
 
-    // 13. Noise tensor (Philox) + per_S + repaint_src buffer
+    // Noise tensor (Philox), per_S, repaint_src buffer
     ops_init_noise_and_repaint(ctx, reqs, batch_n, s);
 
-    // 14. DiT denoising loop
+    // DiT denoising loop
     if (ops_dit_generate(ctx, batch_n, s, cancel, cancel_data) != 0) {
         return -1;
     }
 
-    // 15. VAE decode + waveform splice (splice is inside the batch loop)
+    // VAE decode and waveform splice
     if (ops_vae_decode_and_splice(ctx, batch_n, out, s, src_audio, src_len, cancel, cancel_data) != 0) {
         return -1;
     }
