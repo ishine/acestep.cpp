@@ -393,7 +393,9 @@ int ace_synth_generate(AceSynth *         ctx,
     ops_encode_timbre(ctx, ref_audio, ref_len, s);
 
     // Per-batch text + lyric encoding (main + optional non-cover pass)
-    ops_encode_text(ctx, reqs, batch_n, s);
+    if (ops_encode_text(ctx, reqs, batch_n, s) != 0) {
+        return -1;
+    }
 
     // Build DiT context [batch_n, T, ctx_ch] = src(64) | mask(64)
     if (ops_build_context(ctx, reqs, batch_n, s) != 0) {
@@ -403,10 +405,7 @@ int ace_synth_generate(AceSynth *         ctx,
     // Silence context for audio_cover_strength switching (cover only)
     ops_build_context_silence(ctx, batch_n, s);
 
-    // Cover noise blend (cover_noise_strength > 0)
-    ops_blend_cover_noise(ctx, batch_n, s);
-
-    // Noise tensor (Philox), per_S, repaint_src buffer
+    // Noise tensor (Philox), cover noise blend, per_S, repaint_src buffer
     ops_init_noise_and_repaint(ctx, reqs, batch_n, s);
 
     // DiT denoising loop

@@ -129,7 +129,7 @@ void ops_encode_timbre(AceSynth * ctx, const float * ref_audio, int ref_len, Syn
 
 // Per-batch text + lyric encoding (main pass + optional non-cover pass).
 // Stacks results into s.enc_hidden / s.enc_hidden_nc.
-void ops_encode_text(AceSynth * ctx, const AceRequest * reqs, int batch_n, SynthState & s);
+int ops_encode_text(AceSynth * ctx, const AceRequest * reqs, int batch_n, SynthState & s);
 
 // Build DiT context tensor [batch_n, T, ctx_ch] = src_latents(64) | mask(64).
 int ops_build_context(AceSynth * ctx, const AceRequest * reqs, int batch_n, SynthState & s);
@@ -137,10 +137,7 @@ int ops_build_context(AceSynth * ctx, const AceRequest * reqs, int batch_n, Synt
 // Build silence context + cover_steps for audio_cover_strength switching.
 void ops_build_context_silence(AceSynth * ctx, int batch_n, SynthState & s);
 
-// Blend noise with cover_latents (cover_noise_strength > 0 only).
-void ops_blend_cover_noise(AceSynth * ctx, int batch_n, SynthState & s);
-
-// Initialise noise tensor (Philox) + per_S + repaint_src buffer.
+// Initialise noise tensor (Philox) + cover noise blend + per_S + repaint_src buffer.
 void ops_init_noise_and_repaint(AceSynth * ctx, const AceRequest * reqs, int batch_n, SynthState & s);
 
 // Run the DiT denoising loop.

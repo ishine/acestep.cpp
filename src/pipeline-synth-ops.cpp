@@ -214,6 +214,11 @@ int ops_resolve_T(AceSynth * ctx, SynthState & s) {
         s.duration = (float) s.T_cover / (float) FRAMES_PER_SECOND;
     } else if (s.have_codes) {
         s.T = s.max_codes_len * 5;
+    } else if (s.use_source_context) {
+        // source context requested but neither cover_latents nor codes available.
+        // duration fallthrough would produce a meaningless T for source tasks.
+        fprintf(stderr, "[Pipeline] FATAL: use_source_context but no cover_latents and no audio_codes\n");
+        return -1;
     } else {
         s.T = (int) (s.duration * FRAMES_PER_SECOND);
     }
@@ -291,7 +296,7 @@ void ops_encode_timbre(AceSynth * ctx, const float * ref_audio, int ref_len, Syn
 }
 
 // ops_encode_text
-void ops_encode_text(AceSynth * ctx, const AceRequest * reqs, int batch_n, SynthState & s) {
+int ops_encode_text(AceSynth * ctx, const AceRequest * reqs, int batch_n, SynthState & s) {
     // 3. Per-batch text encoding.
     // Each batch element gets its own caption, lyrics, and metadata encoded independently.
     // TextEncoder + CondEncoder run in series (cheap: ~13ms per element).
@@ -313,6 +318,12 @@ void ops_encode_text(AceSynth * ctx, const AceRequest * reqs, int batch_n, Synth
         } else {
             ggml_backend_tensor_get(ctx->dit.null_condition_emb, s.null_cond_vec.data(), 0, emb_n * sizeof(float));
         }
+    }
+
+    // instruction_str must be set by the orchestrator. Empty means unknown task or bug.
+    if (s.instruction_str.empty()) {
+        fprintf(stderr, "[Encode] FATAL: instruction_str is empty (unknown task or orchestrator bug)\n");
+        return -1;
     }
 
     // encode each batch element independently
@@ -451,6 +462,8 @@ void ops_encode_text(AceSynth * ctx, const AceRequest * reqs, int batch_n, Synth
     if (batch_n > 1) {
         fprintf(stderr, "[Encode] Per-batch encoding done: max_enc_S=%d\n", s.max_enc_S);
     }
+
+    return 0;
 }
 
 // ops_build_context
@@ -508,7 +521,15 @@ int ops_build_context(AceSynth * ctx, const AceRequest * reqs, int batch_n, Synt
             memcpy(s.context.data() + b * s.T * s.ctx_ch, context_single.data(), s.T * s.ctx_ch * sizeof(float));
         }
     } else {
-        // Text2music / Passthrough: per-batch s.context with per-batch audio_codes
+        // Per-batch context from audio_codes or silence (text2music).
+        // use_source_context with neither cover nor codes is an invalid state:
+        // the orchestrator promised source context but provided nothing to condition on.
+        if (s.use_source_context && !s.have_codes) {
+            fprintf(stderr, "[Context] FATAL: use_source_context but no cover_latents and no audio_codes\n");
+            return -1;
+        }
+
+        // Text2music / codes passthrough: per-batch context with per-batch audio_codes
         for (int b = 0; b < batch_n; b++) {
             float * ctx_dst = s.context.data() + b * s.T * s.ctx_ch;
 
@@ -581,47 +602,6 @@ void ops_build_context_silence(AceSynth * ctx, int batch_n, SynthState & s) {
             fprintf(stderr, "[Cover] audio_cover_strength=%.2f -> switch at step %d/%d\n", cover_strength,
                     s.cover_steps, s.num_steps);
         }
-    }
-}
-
-// ops_blend_cover_noise
-void ops_blend_cover_noise(AceSynth * ctx, int batch_n, SynthState & s) {
-    // cover_noise_strength: blend initial s.noise with source latents.
-    // xt = nearest_t * s.noise + (1 - nearest_t) * s.cover_latents, then truncate s.schedule.
-    if (s.use_source_context && s.have_cover && s.rr.cover_noise_strength > 0.0f) {
-        float effective_noise_level = 1.0f - s.rr.cover_noise_strength;
-        // find nearest timestep in s.schedule
-        int   start_idx             = 0;
-        float best_dist             = fabsf(s.schedule[0] - effective_noise_level);
-        for (int i = 1; i < s.num_steps; i++) {
-            float dist = fabsf(s.schedule[i] - effective_noise_level);
-            if (dist < best_dist) {
-                best_dist = dist;
-                start_idx = i;
-            }
-        }
-        float nearest_t = s.schedule[start_idx];
-        // blend: xt = nearest_t * s.noise + (1 - nearest_t) * s.cover_latents
-        for (int b = 0; b < batch_n; b++) {
-            float * n = s.noise.data() + b * s.Oc * s.T;
-            for (int t = 0; t < s.T; t++) {
-                int           t_src = t < s.T_cover ? t : s.T_cover - 1;
-                const float * src   = s.cover_latents.data() + t_src * s.Oc;
-                for (int c = 0; c < s.Oc; c++) {
-                    int idx = t * s.Oc + c;
-                    n[idx]  = nearest_t * n[idx] + (1.0f - nearest_t) * src[c];
-                }
-            }
-        }
-        // truncate s.schedule
-        s.schedule.erase(s.schedule.begin(), s.schedule.begin() + start_idx);
-        s.num_steps = (int) s.schedule.size();
-        // recalculate s.cover_steps with remaining steps
-        if (s.cover_steps >= 0) {
-            s.cover_steps = (int) ((float) s.num_steps * s.rr.audio_cover_strength);
-        }
-        fprintf(stderr, "[Cover] cover_noise_strength=%.2f -> noise_level=%.4f, nearest_t=%.4f, remaining_steps=%d\n",
-                s.rr.cover_noise_strength, effective_noise_level, nearest_t, s.num_steps);
     }
 }
 
