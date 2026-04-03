@@ -716,12 +716,14 @@
 		</label>
 	</div>
 
-	<div class="model-row">
-		<span class="row-label">Conditioning</span>
-		<span class="dit-ind" class:on={hasCodes}>LM codes</span>
-		<span class="dit-ind" class:on={hasSrc}>Src audio</span>
-		<span class="dit-ind" class:on={hasRange}>Range</span>
-		<span class="dit-ind" class:on={hasRef}>Timbre ref</span>
+	<div class="model-row cond-row">
+		<span class="model-label">Cond</span>
+		<div class="track-grid">
+			<span class="dit-ind" class:on={hasCodes}>LM codes</span>
+			<span class="dit-ind" class:on={hasSrc}>Src audio</span>
+			<span class="dit-ind" class:on={hasRange}>Range</span>
+			<span class="dit-ind" class:on={hasRef}>Timbre ref</span>
+		</div>
 	</div>
 
 	<button type="button" disabled={busy} onclick={synthesize}>Synthesize</button>
@@ -870,6 +872,7 @@
 		padding: 0.15rem 0.4rem;
 		border-radius: 4px;
 		font-size: 0.8rem;
+		white-space: nowrap;
 		background: var(--bg-err, #c0392b);
 		color: #fff;
 		opacity: 0.6;
@@ -878,10 +881,12 @@
 		background: var(--bg-ok, #27ae60);
 		opacity: 1;
 	}
-	.track-row {
+	.track-row,
+	.cond-row {
 		align-items: flex-start;
 	}
-	.track-row .model-label {
+	.track-row .model-label,
+	.cond-row .model-label {
 		padding-top: 0.2rem;
 	}
 	.track-grid {
