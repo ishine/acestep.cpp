@@ -147,6 +147,13 @@ static void request_parse_obj(yyjson_val * obj, AceRequest * r) {
             r->use_cot_caption = (strcmp(s, "true") == 0 || strcmp(s, "1") == 0);
         }
     }
+
+    // Lyrics is the source of truth for instrumental mode.
+    // The DiT was trained with lyrics="[Instrumental]" and language="unknown".
+    // Force vocal_language to "unknown" to match the training distribution.
+    if (r->lyrics == "[Instrumental]" && r->vocal_language != "unknown") {
+        r->vocal_language = "unknown";
+    }
 }
 
 // Core parser: takes a raw JSON string. Used by the server directly.

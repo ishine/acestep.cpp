@@ -100,7 +100,11 @@ struct MetadataFSM {
         if (full_tok.size() >= pre_tok.size() && std::equal(pre_tok.begin(), pre_tok.end(), full_tok.begin())) {
             return std::vector<int>(full_tok.begin() + pre_tok.size(), full_tok.end());
         }
-        return full_tok;
+
+        // BPE context mismatch: "keyscale:" tokenizes differently alone vs
+        // in "keyscale: C# minor\n" (colon+space merge). Tokenize the value
+        // part directly to avoid injecting the field name as part of the value.
+        return bpe_encode(&bpe, full.substr(prefix.size()), false);
     }
 
     void build_value_tree(BPETokenizer &                   bpe,
