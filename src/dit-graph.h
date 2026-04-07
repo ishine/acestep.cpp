@@ -549,7 +549,7 @@ static struct ggml_cgraph * dit_ggml_build_graph(DiTGGML *             m,
         // layer_type=0 (sliding window): sa_mask_sw, layer_type=1 (full): sa_mask_pad
         struct ggml_tensor * sa_mask = (m->layers[i].layer_type == 0) ? sa_mask_sw : sa_mask_pad;
         hidden = dit_ggml_build_layer(ctx, m, i, hidden, tproj, enc, positions, sa_mask, ca_mask, S, enc_S, N);
-        // Debug dumps at key layers: 0, 6, 12, 18, 23
+        // Debug dumps at key layers: 0, 6, 12, 18, last
         if (i == 0 || i == 6 || i == 12 || i == 18 || i == c.n_layers - 1) {
             char lname[64];
             snprintf(lname, sizeof(lname), "hidden_after_layer%d", i);

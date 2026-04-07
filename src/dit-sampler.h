@@ -454,7 +454,9 @@ static int dit_ggml_generate(DiTGGML *           model,
             dump_named("hidden_after_layer6");
             dump_named("hidden_after_layer12");
             dump_named("hidden_after_layer18");
-            dump_named("hidden_after_layer23");
+            char last_layer_name[64];
+            snprintf(last_layer_name, sizeof(last_layer_name), "hidden_after_layer%d", c.n_layers - 1);
+            dump_named(last_layer_name);
         }
 
         // read velocity output: [Oc, T, N]

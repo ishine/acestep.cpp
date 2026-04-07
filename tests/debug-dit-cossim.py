@@ -5,9 +5,11 @@ Run from tests/ directory. All paths relative to CWD.
 
 Usage:
     cd tests/
-    ./debug-dit-cossim.py              # turbo BF16
-    ./debug-dit-cossim.py --quant Q6_K # turbo Q6_K
-    ./debug-dit-cossim.py --mode sft   # SFT BF16
+    ./debug-dit-cossim.py                 # turbo BF16
+    ./debug-dit-cossim.py --quant Q6_K    # turbo Q6_K
+    ./debug-dit-cossim.py --mode sft      # SFT BF16
+    ./debug-dit-cossim.py --mode xl-turbo # XL turbo BF16
+    ./debug-dit-cossim.py --mode all      # all 4 models
 """
 import os, sys, subprocess, struct, shutil, argparse, json
 import numpy as np
@@ -18,12 +20,22 @@ MODE_CONFIG = {
     "turbo": {
         "gguf_base": "acestep-v15-turbo",
         "config_path": "acestep-v15-turbo",
-        "steps": 8, "shift": 3.0, "guidance": 0.0,
+        "steps": 8, "shift": 3.0, "guidance": 0.0, "n_layers": 24,
     },
     "sft": {
         "gguf_base": "acestep-v15-sft",
         "config_path": "acestep-v15-sft",
-        "steps": 50, "shift": 1.0, "guidance": 1.0,
+        "steps": 50, "shift": 1.0, "guidance": 1.0, "n_layers": 24,
+    },
+    "xl-turbo": {
+        "gguf_base": "acestep-v15-xl-turbo",
+        "config_path": "acestep-v15-xl-turbo",
+        "steps": 8, "shift": 3.0, "guidance": 0.0, "n_layers": 32,
+    },
+    "xl-sft": {
+        "gguf_base": "acestep-v15-xl-sft",
+        "config_path": "acestep-v15-xl-sft",
+        "steps": 50, "shift": 1.0, "guidance": 1.0, "n_layers": 32,
     },
 }
 
@@ -247,7 +259,7 @@ def run_python(dump_dir, req, cfg, lora_dir=None):
     _hooks.append(decoder.condition_embedder.register_forward_hook(make_hook("enc_after_cond_emb")))
     _hooks.append(decoder.layers[0].register_forward_hook(make_hook("hidden_after_layer0")))
     _hooks.append(decoder.layers[0].self_attn.register_forward_hook(make_hook("layer0_sa_output")))
-    for li in [6, 12, 18, 23]:
+    for li in [6, 12, 18, cfg["n_layers"] - 1]:
         _hooks.append(decoder.layers[li].register_forward_hook(make_hook(f"hidden_after_layer{li}")))
 
     _hooks.append(decoder.time_embed.register_forward_hook(make_hook("temb_t")))
@@ -325,7 +337,8 @@ def build_stages(cfg):
         "text_hidden", "lyric_embed", "enc_hidden", "detok_output", "context", "noise",
         "temb_t", "hidden_after_proj_in", "enc_after_cond_emb",
         "layer0_sa_output", "hidden_after_layer0",
-        "hidden_after_layer6", "hidden_after_layer12", "hidden_after_layer18", "hidden_after_layer23",
+        "hidden_after_layer6", "hidden_after_layer12", "hidden_after_layer18",
+        f"hidden_after_layer{cfg['n_layers'] - 1}",
     ]
     if has_cfg:
         stages += ["null_condition_emb", "null_enc_hidden"]
@@ -456,8 +469,8 @@ def run_mode(mode_name, cfg, req, gguf_path, lora_dir=None):
 
 def main():
     ap = argparse.ArgumentParser(description="GGML vs Python cosine similarity comparison")
-    ap.add_argument("--mode", default="turbo", choices=["turbo", "sft", "both"],
-                    help="which model(s) to test (default: turbo)")
+    ap.add_argument("--mode", default="turbo", choices=list(MODE_CONFIG.keys()) + ["all"],
+                    help="which model to test (default: turbo)")
     ap.add_argument("--quant", default="BF16",
                     help="quantization suffix for GGUF (default: BF16, e.g. Q6_K, Q8_0)")
     ap.add_argument("--lora", default=None,
@@ -466,7 +479,7 @@ def main():
 
     req = load_request()
 
-    modes = ["turbo", "sft"] if args.mode == "both" else [args.mode]
+    modes = list(MODE_CONFIG.keys()) if args.mode == "all" else [args.mode]
     ok = True
     for m in modes:
         cfg = MODE_CONFIG[m]
