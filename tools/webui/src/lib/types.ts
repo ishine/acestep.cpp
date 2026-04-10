@@ -29,6 +29,7 @@ export interface AceRequest {
 	task_type?: string;
 	track?: string;
 	infer_method?: string;
+	peak_clip?: number;
 	// server routing (not part of C++ AceRequest, parsed separately)
 	synth_model?: string;
 	lm_model?: string;

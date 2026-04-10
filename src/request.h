@@ -67,6 +67,12 @@ struct AceRequest {
 
     // inference method: "" or "ode" = ODE Euler, "sde" = SDE Stochastic
     std::string infer_method;  // ""
+
+    // audio output: peak clip via percentile normalization.
+    // 0 = peak normalization (100.0000th percentile, no clipping).
+    // 10 = default (99.9990th percentile, clips top 0.001%).
+    // 999 = max (99.9001th percentile, clips top 0.1%).
+    int peak_clip;  // 10
 };
 
 // Initialize all fields to defaults (matches Python GenerationParams defaults)

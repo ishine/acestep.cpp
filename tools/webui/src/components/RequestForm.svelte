@@ -43,6 +43,14 @@
 	);
 	let singleTrack = $derived(taskType === TASK_LEGO || taskType === TASK_EXTRACT);
 
+	// fill number fields with server defaults (avoids empty inputs)
+	$effect(() => {
+		if (!d) return;
+		if (app.request.lm_batch_size == null) app.request.lm_batch_size = d.lm_batch_size;
+		if (app.request.synth_batch_size == null) app.request.synth_batch_size = d.synth_batch_size;
+		if (app.request.peak_clip == null) app.request.peak_clip = d.peak_clip;
+	});
+
 	// DiT input indicators
 	let hasCodes = $derived(!!app.request.audio_codes?.trim() && app.srcSongId == null);
 	let hasSrc = $derived(app.srcSongId != null);
@@ -364,6 +372,8 @@
 			// infer_method from form
 			const im = app.request.infer_method || '';
 			if (im) synthParams.infer_method = im;
+			const b = num(app.request.peak_clip);
+			if (b != null) synthParams.peak_clip = b;
 			// model routing from form
 			if (app.request.synth_model) synthParams.synth_model = app.request.synth_model;
 			if (app.request.lora && loraList.includes(String(app.request.lora)))
@@ -418,9 +428,9 @@
 			for (let i = blobs.length - 1; i >= 0; i--) {
 				const r = expanded[i];
 				const task = r.task_type || 'text2music';
-				const parts = [baseName, variant, task].filter((s) => s);
+				const suffix = [variant, task].filter((s) => s).join(' ');
 				const song = {
-					name: parts.join(' '),
+					name: suffix ? baseName + ' (' + suffix + ')' : baseName,
 					format: app.format,
 					created: now + i,
 					caption: r.caption,
@@ -746,7 +756,14 @@
 			bind:value={app.request.synth_batch_size}
 		/>
 		<span class="spacer"></span>
-		<span class="row-label">Format</span>
+		<span class="row-label">Peak clip</span>
+		<input
+			type="number"
+			class="peak-clip-input"
+			min="0"
+			max="999"
+			bind:value={app.request.peak_clip}
+		/>
 		<label class="radio-label">
 			<input type="radio" name="format" value="mp3" bind:group={app.format} /> MP3
 		</label>
@@ -800,6 +817,7 @@
 	}
 	textarea,
 	input[type='text'],
+	input[type='number'],
 	select {
 		font-family: inherit;
 		font-size: 0.9rem;
@@ -857,7 +875,6 @@
 	.row-label {
 		font-size: 0.85rem;
 		color: var(--fg-dim);
-		flex-shrink: 0;
 	}
 	.radio-label {
 		flex-direction: row;
@@ -879,13 +896,17 @@
 		width: 3rem;
 		text-align: center;
 	}
+	input.peak-clip-input {
+		width: 4rem;
+		text-align: center;
+	}
 	.pending-nav {
 		display: flex;
 		align-items: center;
 		gap: 0.4rem;
 	}
 	.nav-btn {
-		padding: 0.15rem 0.4rem !important;
+		padding: 0.4rem 0.4rem !important;
 		font-size: 0.75rem !important;
 		min-width: 0 !important;
 	}

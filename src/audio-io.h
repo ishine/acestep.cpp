@@ -295,15 +295,24 @@ static float * audio_read_48k(const char * path, int * T_out) {
     return resampled;
 }
 
-// maximize perceived loudness via 99.5th percentile normalization.
-// finds the amplitude at the 99.5th percentile, scales so that value
-// reaches 1.0, then hard clips the rare outlier peaks above 1.0.
-// result: the body of the signal is as loud as possible, only the
-// top 0.5% of samples (transient spikes) get clipped.
+// maximize perceived loudness via percentile normalization.
+// peak_clip controls the tradeoff between loudness and clipping:
+//   0   = peak normalization (100.0000th percentile, no clipping)
+//   10  = default (99.9990th percentile, clips top 0.001%)
+//   999 = max (99.9001th percentile, clips top 0.1%)
+// the target percentile is 1.0 - peak_clip/1000000.0.
 // n_total = number of float samples (both channels combined).
-static void audio_normalize(float * audio, int n_total) {
+static void audio_normalize(float * audio, int n_total, int peak_clip = 10) {
     if (n_total <= 0) {
         return;
+    }
+
+    // clamp to valid range
+    if (peak_clip < 0) {
+        peak_clip = 0;
+    }
+    if (peak_clip > 999) {
+        peak_clip = 999;
     }
 
     // collect absolute values
@@ -312,17 +321,18 @@ static void audio_normalize(float * audio, int n_total) {
         absvals[i] = audio[i] < 0.0f ? -audio[i] : audio[i];
     }
 
-    // partial sort to find the 99.5th percentile
-    size_t idx995 = (size_t) ((double) (n_total - 1) * 0.995);
-    std::nth_element(absvals.begin(), absvals.begin() + idx995, absvals.end());
-    float p995 = absvals[idx995];
+    // partial sort to find the target percentile
+    double pct = 1.0 - (double) peak_clip / 1000000.0;
+    size_t idx = (size_t) ((double) (n_total - 1) * pct);
+    std::nth_element(absvals.begin(), absvals.begin() + idx, absvals.end());
+    float ref = absvals[idx];
 
-    if (p995 < 1e-6f) {
+    if (ref < 1e-6f) {
         return;
     }
 
-    // scale so the 99.5th percentile hits 1.0, hard clip the rest
-    float gain = 1.0f / p995;
+    // scale so the target percentile hits 1.0, hard clip the rest
+    float gain = 1.0f / ref;
     for (int i = 0; i < n_total; i++) {
         float v = audio[i] * gain;
         if (v > 1.0f) {
@@ -640,9 +650,9 @@ static bool audio_write_mp3(const char * path, const float * audio, int T_audio,
 // Write audio, auto-detect format from extension.
 // .mp3 -> MP3 encoding at the given kbps (default 128).
 // .wav (or anything else) -> WAV 16-bit PCM.
-// Peak-normalizes to 0 dBFS in-place before writing (single normalization point).
-static bool audio_write(const char * path, float * audio, int T_audio, int sr, int kbps) {
-    audio_normalize(audio, T_audio * 2);
+// Normalizes in place before writing (single normalization point).
+static bool audio_write(const char * path, float * audio, int T_audio, int sr, int kbps, int peak_clip = 10) {
+    audio_normalize(audio, T_audio * 2, peak_clip);
 
     if (audio_io_ends_with(path, ".mp3")) {
         return audio_write_mp3(path, audio, T_audio, sr, (kbps > 0) ? kbps : 128);

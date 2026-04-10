@@ -44,6 +44,7 @@ void request_init(AceRequest * r) {
     r->task_type            = "";
     r->track                = "";
     r->infer_method         = "";
+    r->peak_clip            = 10;
 }
 
 // helper: get yyjson string as std::string
@@ -140,6 +141,9 @@ static void request_parse_obj(yyjson_val * obj, AceRequest * r) {
     }
     if ((v = yyjson_obj_get(obj, "repaint_strength")) && yyjson_is_num(v)) {
         r->repaint_strength = (float) yyjson_get_num(v);
+    }
+    if ((v = yyjson_obj_get(obj, "peak_clip")) && yyjson_is_num(v)) {
+        r->peak_clip = (int) yyjson_get_num(v);
     }
 
     // bool
@@ -357,6 +361,9 @@ static yyjson_mut_doc * request_build_doc(const AceRequest * r, bool sparse) {
     if (all || r->track != def.track) {
         yyjson_mut_obj_add_str(doc, root, "track", r->track.c_str());
     }
+    if (all || r->peak_clip != def.peak_clip) {
+        yyjson_mut_obj_add_int(doc, root, "peak_clip", r->peak_clip);
+    }
 
     return doc;
 }
@@ -418,6 +425,9 @@ void request_dump(const AceRequest * r, FILE * f) {
     }
     if (!r->infer_method.empty()) {
         fprintf(f, "[Request] infer_method: %s\n", r->infer_method.c_str());
+    }
+    if (r->peak_clip != 10) {
+        fprintf(f, "[Request] peak_clip: %d\n", r->peak_clip);
     }
     fprintf(f, "[Request] audio_codes: %s\n", r->audio_codes.empty() ? "(none)" : "(present)");
 }

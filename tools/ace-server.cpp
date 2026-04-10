@@ -805,7 +805,7 @@ static void handle_synth(const httplib::Request & req, httplib::Response & res) 
             continue;
         }
 
-        audio_normalize(audio[b].samples, audio[b].n_samples * 2);
+        audio_normalize(audio[b].samples, audio[b].n_samples * 2, ace_reqs[0].peak_clip);
 
         if (output_wav) {
             encoded[b] = audio_encode_wav(audio[b].samples, audio[b].n_samples, 48000);
