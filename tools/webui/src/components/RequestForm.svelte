@@ -63,6 +63,23 @@
 	let hasRange = $derived(app.srcRangeStart >= 0 && app.srcRangeEnd > app.srcRangeStart);
 	let hasRef = $derived(app.refSongId != null);
 
+	// instrumental mode: checked when lyrics and language match the convention.
+	// any manual edit to either field naturally unchecks via $derived.
+	let instrumental = $derived(
+		String(app.request.lyrics || '').trim() === '[Instrumental]' &&
+			String(app.request.vocal_language || '').trim() === 'unknown'
+	);
+
+	function toggleInstrumental() {
+		if (instrumental) {
+			app.request.lyrics = '';
+			app.request.vocal_language = '';
+		} else {
+			app.request.lyrics = '[Instrumental]';
+			app.request.vocal_language = 'unknown';
+		}
+	}
+
 	// track selection: radio for lego/extract, multi for complete
 	let selectedTracks: Set<string> = $state(new Set());
 
@@ -606,10 +623,15 @@
 		bind:value={app.request.caption}
 	></textarea>
 
-	<div class="section-title">Lyrics</div>
+	<div class="section-title lyrics-header">
+		Lyrics
+		<label class="instrumental-toggle" title="Set lyrics to [Instrumental] and language to unknown">
+			<input type="checkbox" checked={instrumental} onchange={toggleInstrumental} /> Instrumental
+		</label>
+	</div>
 	<textarea
 		rows="8"
-		placeholder="Write your own lyrics, type [Instrumental], or leave empty to let the LM create them..."
+		placeholder="Write your own lyrics or leave empty to let the LM create them..."
 		bind:value={app.request.lyrics}
 	></textarea>
 
@@ -646,9 +668,27 @@
 	</div>
 
 	<div class="lm-row">
-		<button type="button" disabled={busy} onclick={dice}>Dice</button>
-		<button type="button" disabled={busy} onclick={inspire}>Inspire</button>
-		<button type="button" disabled={busy} onclick={format}>Format</button>
+		<button
+			type="button"
+			disabled={busy}
+			onclick={dice}
+			title="Pick a random example from ACE-Step sample prompts. Use Inspire next to complete missing fields."
+			>Dice</button
+		>
+		<button
+			type="button"
+			disabled={busy}
+			onclick={inspire}
+			title="Step 1: LM inference to generate metadata and lyrics from your caption. Next: Compose."
+			>Inspire</button
+		>
+		<button
+			type="button"
+			disabled={busy}
+			onclick={format}
+			title="Step 1: LM inference to format existing lyrics for better generation quality. Next: Compose."
+			>Format</button
+		>
 	</div>
 
 	<details>
@@ -696,7 +736,7 @@
 				>Audio codes
 				<textarea
 					rows="4"
-					placeholder="Filled by Compose, or paste for dit-only"
+					placeholder="Filled by Compose. Do not edit unless you know what you are doing."
 					bind:value={app.request.audio_codes}
 				></textarea>
 			</label>
@@ -715,18 +755,39 @@
 		<span class="spacer"></span>
 		<span class="row-label">Pending</span>
 		<div class="pending-nav">
-			<button type="button" class="nav-btn" onclick={() => switchPending(-1)}>&lt;</button>
+			<button
+				type="button"
+				class="nav-btn"
+				onclick={() => switchPending(-1)}
+				title="Previous pending variation">&lt;</button
+			>
 			<span class="nav-label"
 				>{app.pendingRequests.length > 0 ? app.pendingIndex + 1 : 0} / {app.pendingRequests
 					.length}</span
 			>
-			<button type="button" class="nav-btn" onclick={() => switchPending(1)}>&gt;</button>
+			<button
+				type="button"
+				class="nav-btn"
+				onclick={() => switchPending(1)}
+				title="Next pending variation">&gt;</button
+			>
 		</div>
 	</div>
 
 	<div class="action-row">
-		<button type="button" disabled={busy} onclick={compose}>Compose</button>
-		<button type="button" disabled={!busyLm} onclick={cancelPipeline}>Cancel</button>
+		<button
+			type="button"
+			disabled={busy}
+			onclick={compose}
+			title="Step 2: LM inference to generate audio codes that drive the flow matching. Next: Synthesize."
+			>Compose</button
+		>
+		<button
+			type="button"
+			disabled={!busyLm}
+			onclick={cancelPipeline}
+			title="Cancel the active LM job">Cancel</button
+		>
 	</div>
 
 	<details open>
@@ -867,8 +928,19 @@
 	</div>
 
 	<div class="action-row">
-		<button type="button" disabled={busy} onclick={synthesize}>Synthesize</button>
-		<button type="button" disabled={!busySynth} onclick={cancelPipeline}>Cancel</button>
+		<button
+			type="button"
+			disabled={busy}
+			onclick={synthesize}
+			title="Step 3: DiT flow matching + VAE decoding to synthesize audio from codes. No green indicators above (LM codes, Src audio, Timbre ref)? The DiT will hallucinate freely from your prompt: very creative, but unpredictable."
+			>Synthesize</button
+		>
+		<button
+			type="button"
+			disabled={!busySynth}
+			onclick={cancelPipeline}
+			title="Cancel the active synth job">Cancel</button
+		>
 	</div>
 </form>
 
@@ -901,6 +973,24 @@
 		color: var(--fg);
 		font-weight: 600;
 		padding: 0.4rem 0 0;
+	}
+	.lyrics-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+	}
+	.instrumental-toggle {
+		display: flex;
+		flex-direction: row;
+		align-items: center;
+		gap: 0.25rem;
+		font-size: 0.8rem;
+		font-weight: 400;
+		color: var(--fg-dim);
+		cursor: pointer;
+	}
+	.instrumental-toggle input[type='checkbox'] {
+		cursor: pointer;
 	}
 	textarea,
 	input[type='text'],
