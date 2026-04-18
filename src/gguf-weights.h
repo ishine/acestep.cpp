@@ -128,6 +128,27 @@ static bool gf_load(GGUFModel * gf, const char * path) {
     gf->data_offset = gguf_get_data_offset(gf->gguf);
 
     int64_t n = gguf_get_n_tensors(gf->gguf);
+
+    // Verify every tensor fits inside the mapped file. Catches truncated
+    // downloads early with a clear message instead of a segfault deep in
+    // cuMemcpyHtoDAsync when the backend reads past the mmap.
+    for (int64_t i = 0; i < n; i++) {
+        const char *         tname = gguf_get_tensor_name(gf->gguf, i);
+        struct ggml_tensor * t     = ggml_get_tensor(gf->meta, tname);
+        size_t               toff  = gguf_get_tensor_offset(gf->gguf, i);
+        size_t               tsize = ggml_nbytes(t);
+        size_t               end   = gf->data_offset + toff + tsize;
+        if (end > gf->file_size) {
+            fprintf(stderr,
+                    "[GGUF] FATAL: '%s' is truncated or corrupt.\n"
+                    "       tensor '%s' needs bytes [%zu..%zu) but file is only %zu bytes.\n"
+                    "       Re-download the file and verify its size or checksum.\n",
+                    path, tname, gf->data_offset + toff, end, gf->file_size);
+            gf_close(gf);
+            return false;
+        }
+    }
+
     fprintf(stderr, "[GGUF] %s: %lld tensors, data at offset %zu\n", path, (long long) n, gf->data_offset);
     return true;
 }
