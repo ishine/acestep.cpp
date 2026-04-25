@@ -202,12 +202,19 @@ static bool g_keep_loaded = false;
 // the result. the client polls GET /job?id=N until done, then fetches
 // the result with GET /job?id=N&result=1.
 // cancel: POST /job?id=N&cancel=1 sets the per-job flag.
+enum class JobStatus : int {
+    RUNNING   = 0,
+    DONE      = 1,
+    FAILED    = 2,
+    CANCELLED = 3,
+};
+
 struct Job {
-    std::string       id;
-    std::atomic<int>  status{ 0 };  // 0=running 1=done 2=failed 3=cancelled
-    std::string       result_body;
-    std::string       result_mime;
-    std::atomic<bool> cancel{ false };
+    std::string            id;
+    std::atomic<JobStatus> status{ JobStatus::RUNNING };
+    std::string            result_body;
+    std::string            result_mime;
+    std::atomic<bool>      cancel{ false };
 
     // memory ordering contract: result_body and result_mime are written
     // before status is stored (seq_cst). the client loads status (seq_cst)
@@ -342,7 +349,7 @@ static std::shared_ptr<Job> job_create() {
         bool evicted = false;
         for (auto it = g_job_order.begin(); it != g_job_order.end(); ++it) {
             auto jit = g_jobs.find(*it);
-            if (jit == g_jobs.end() || jit->second->status.load() != 0) {
+            if (jit == g_jobs.end() || jit->second->status.load() != JobStatus::RUNNING) {
                 if (jit != g_jobs.end()) {
                     g_jobs.erase(jit);
                 }
@@ -364,19 +371,18 @@ static std::shared_ptr<Job> job_find(const std::string & id) {
     return it != g_jobs.end() ? it->second : nullptr;
 }
 
-static const char * job_status_str(int s) {
+static const char * job_status_str(JobStatus s) {
     switch (s) {
-        case 0:
+        case JobStatus::RUNNING:
             return "running";
-        case 1:
+        case JobStatus::DONE:
             return "done";
-        case 2:
+        case JobStatus::FAILED:
             return "failed";
-        case 3:
+        case JobStatus::CANCELLED:
             return "cancelled";
-        default:
-            return "unknown";
     }
+    return "unknown";
 }
 
 // log capture: intercept stderr via pipe, forward to terminal + ring buffer.
@@ -543,7 +549,7 @@ static std::string resolve_name(const std::vector<ModelEntry> & bucket,
 // LM worker: generates metadata + lyrics + codes, stores JSON result in job.
 static void lm_worker(std::shared_ptr<Job> job, AceRequest ace_req, int lm_batch_size, int mode) {
     if (job->cancel.load()) {
-        job->status.store(3);
+        job->status.store(JobStatus::CANCELLED);
         return;
     }
 
@@ -552,7 +558,7 @@ static void lm_worker(std::shared_ptr<Job> job, AceRequest ace_req, int lm_batch
     const ModelEntry * entry   = registry_find(g_registry.lm, lm_name.c_str());
     if (!entry) {
         fprintf(stderr, "[Server] LM not found: %s\n", lm_name.c_str());
-        job->status.store(2);
+        job->status.store(JobStatus::FAILED);
         return;
     }
     AceLmParams p = g_lm_params;
@@ -564,7 +570,7 @@ static void lm_worker(std::shared_ptr<Job> job, AceRequest ace_req, int lm_batch
     AceLm * ctx = ace_lm_load(g_store, &p);
     if (!ctx) {
         fprintf(stderr, "[Server] FATAL: LM load failed\n");
-        job->status.store(2);
+        job->status.store(JobStatus::FAILED);
         return;
     }
 
@@ -576,7 +582,7 @@ static void lm_worker(std::shared_ptr<Job> job, AceRequest ace_req, int lm_batch
     ace_lm_free(ctx);
 
     if (rc != 0) {
-        job->status.store(job->cancel.load() ? 3 : 2);
+        job->status.store(job->cancel.load() ? JobStatus::CANCELLED : JobStatus::FAILED);
         return;
     }
 
@@ -600,7 +606,7 @@ static void lm_worker(std::shared_ptr<Job> job, AceRequest ace_req, int lm_batch
 
     job->result_body = std::move(body);
     job->result_mime = "application/json";
-    job->status.store(1);
+    job->status.store(JobStatus::DONE);
     fprintf(stderr, "[Server] Job %s done (LM, %d results)\n", job->id.c_str(), lm_batch_size);
 }
 
@@ -693,7 +699,7 @@ static void synth_worker(std::shared_ptr<Job>    job,
     if (job->cancel.load()) {
         free(src_interleaved);
         free(ref_interleaved);
-        job->status.store(3);
+        job->status.store(JobStatus::CANCELLED);
         return;
     }
 
@@ -704,14 +710,14 @@ static void synth_worker(std::shared_ptr<Job>    job,
         fprintf(stderr, "[Server] DiT not found: %s\n", dit_name.c_str());
         free(src_interleaved);
         free(ref_interleaved);
-        job->status.store(2);
+        job->status.store(JobStatus::FAILED);
         return;
     }
     if (g_registry.text_enc.empty() || g_registry.vae.empty()) {
         fprintf(stderr, "[Server] Missing Text-Enc or VAE in registry\n");
         free(src_interleaved);
         free(ref_interleaved);
-        job->status.store(2);
+        job->status.store(JobStatus::FAILED);
         return;
     }
     std::string        vae_name = resolve_name(g_registry.vae, ace_reqs[0].vae, g_loaded_vae);
@@ -720,7 +726,7 @@ static void synth_worker(std::shared_ptr<Job>    job,
         fprintf(stderr, "[Server] VAE not found: %s\n", vae_name.c_str());
         free(src_interleaved);
         free(ref_interleaved);
-        job->status.store(2);
+        job->status.store(JobStatus::FAILED);
         return;
     }
 
@@ -736,7 +742,7 @@ static void synth_worker(std::shared_ptr<Job>    job,
             fprintf(stderr, "[Server] Adapter not found: %s\n", ace_reqs[0].adapter.c_str());
             free(src_interleaved);
             free(ref_interleaved);
-            job->status.store(2);
+            job->status.store(JobStatus::FAILED);
             return;
         }
         p.adapter_path  = adapter->path.c_str();
@@ -750,7 +756,7 @@ static void synth_worker(std::shared_ptr<Job>    job,
         fprintf(stderr, "[Server] FATAL: synth load failed\n");
         free(src_interleaved);
         free(ref_interleaved);
-        job->status.store(2);
+        job->status.store(JobStatus::FAILED);
         return;
     }
 
@@ -806,7 +812,7 @@ static void synth_worker(std::shared_ptr<Job>    job,
         for (auto & a : audio) {
             ace_audio_free(&a);
         }
-        job->status.store(job->cancel.load() ? 3 : 2);
+        job->status.store(job->cancel.load() ? JobStatus::CANCELLED : JobStatus::FAILED);
         return;
     }
 
@@ -853,7 +859,7 @@ static void synth_worker(std::shared_ptr<Job>    job,
     job->result_body = multipart_build_audio_latent(encoded, mime, captured_latents);
     job->result_mime = MULTIPART_MIME;
 
-    job->status.store(job->cancel.load() ? 3 : 1);
+    job->status.store(job->cancel.load() ? JobStatus::CANCELLED : JobStatus::DONE);
     fprintf(stderr, "[Server] Job %s done (%d tracks)\n", job->id.c_str(), total_tracks);
 }
 
@@ -1039,7 +1045,7 @@ static void understand_worker(std::shared_ptr<Job> job,
                               int                  src_T_latent) {
     if (job->cancel.load()) {
         free(src_interleaved);
-        job->status.store(3);
+        job->status.store(JobStatus::CANCELLED);
         return;
     }
 
@@ -1054,7 +1060,7 @@ static void understand_worker(std::shared_ptr<Job> job,
         fprintf(stderr, "[Server] LM, DiT or VAE not found: lm=%s dit=%s vae=%s\n", lm_name.c_str(), dit_name.c_str(),
                 vae_name.c_str());
         free(src_interleaved);
-        job->status.store(2);
+        job->status.store(JobStatus::FAILED);
         return;
     }
 
@@ -1067,7 +1073,7 @@ static void understand_worker(std::shared_ptr<Job> job,
     if (!ctx) {
         fprintf(stderr, "[Server] FATAL: understand load failed\n");
         free(src_interleaved);
-        job->status.store(2);
+        job->status.store(JobStatus::FAILED);
         return;
     }
 
@@ -1081,7 +1087,7 @@ static void understand_worker(std::shared_ptr<Job> job,
     free(src_interleaved);
 
     if (rc != 0) {
-        job->status.store(job->cancel.load() ? 3 : 2);
+        job->status.store(job->cancel.load() ? JobStatus::CANCELLED : JobStatus::FAILED);
         return;
     }
 
@@ -1100,7 +1106,7 @@ static void understand_worker(std::shared_ptr<Job> job,
     std::string json_part = "[" + request_to_json(&out) + "]";
     job->result_body      = multipart_build_json_latent(json_part, captured_latent, captured_T_latent);
     job->result_mime      = MULTIPART_MIME;
-    job->status.store(1);
+    job->status.store(JobStatus::DONE);
     fprintf(stderr, "[Server] Job %s done (understand)\n", job->id.c_str());
 }
 
@@ -1214,7 +1220,7 @@ static void decode_worker(std::shared_ptr<Job> job,
                           WavFormat            wav_fmt,
                           int                  peak_clip) {
     if (job->cancel.load()) {
-        job->status.store(3);
+        job->status.store(JobStatus::CANCELLED);
         return;
     }
 
@@ -1222,7 +1228,7 @@ static void decode_worker(std::shared_ptr<Job> job,
     const ModelEntry * vae_entry = registry_find(g_registry.vae, vae_name.c_str());
     if (!vae_entry) {
         fprintf(stderr, "[Server] decode: VAE not found: %s\n", vae_name.c_str());
-        job->status.store(2);
+        job->status.store(JobStatus::FAILED);
         return;
     }
 
@@ -1235,7 +1241,7 @@ static void decode_worker(std::shared_ptr<Job> job,
     VAEGGML * vae = store_require_vae_dec(g_store, vae_key);
     if (!vae) {
         fprintf(stderr, "[Server] decode: store_require_vae_dec failed\n");
-        job->status.store(2);
+        job->status.store(JobStatus::FAILED);
         return;
     }
     ModelHandle vae_guard(g_store, vae);
@@ -1246,7 +1252,7 @@ static void decode_worker(std::shared_ptr<Job> job,
                                         g_synth_params.vae_chunk, g_synth_params.vae_overlap);
     if (T_audio < 0) {
         fprintf(stderr, "[Server] decode: vae_ggml_decode_tiled failed\n");
-        job->status.store(2);
+        job->status.store(JobStatus::FAILED);
         return;
     }
     fprintf(stderr, "[Server] decode: %d latent frames -> %d audio samples (%.2fs), %.0fms\n", src_T_latent, T_audio,
@@ -1277,7 +1283,7 @@ static void decode_worker(std::shared_ptr<Job> job,
     // client just uploaded it, echoing it back would only burn bandwidth.
     job->result_body = std::move(encoded);
     job->result_mime = mime;
-    job->status.store(job->cancel.load() ? 3 : 1);
+    job->status.store(job->cancel.load() ? JobStatus::CANCELLED : JobStatus::DONE);
     fprintf(stderr, "[Server] Job %s done (decode)\n", job->id.c_str());
 }
 
@@ -1298,7 +1304,7 @@ static void encode_worker(std::shared_ptr<Job> job, AceRequest ace_req, float * 
     } buf{ src_interleaved };
 
     if (job->cancel.load()) {
-        job->status.store(3);
+        job->status.store(JobStatus::CANCELLED);
         return;
     }
 
@@ -1306,7 +1312,7 @@ static void encode_worker(std::shared_ptr<Job> job, AceRequest ace_req, float * 
     const ModelEntry * vae_entry = registry_find(g_registry.vae, vae_name.c_str());
     if (!vae_entry) {
         fprintf(stderr, "[Server] encode: VAE not found: %s\n", vae_name.c_str());
-        job->status.store(2);
+        job->status.store(JobStatus::FAILED);
         return;
     }
 
@@ -1319,7 +1325,7 @@ static void encode_worker(std::shared_ptr<Job> job, AceRequest ace_req, float * 
     VAEEncoder * vae = store_require_vae_enc(g_store, vae_key);
     if (!vae) {
         fprintf(stderr, "[Server] encode: store_require_vae_enc failed\n");
-        job->status.store(2);
+        job->status.store(JobStatus::FAILED);
         return;
     }
     ModelHandle vae_guard(g_store, vae);
@@ -1336,7 +1342,7 @@ static void encode_worker(std::shared_ptr<Job> job, AceRequest ace_req, float * 
                                                        g_synth_params.vae_chunk, g_synth_params.vae_overlap);
     if (T_latent < 0) {
         fprintf(stderr, "[Server] encode: vae_enc_encode_tiled failed\n");
-        job->status.store(2);
+        job->status.store(JobStatus::FAILED);
         return;
     }
     fprintf(stderr, "[Server] encode: %d audio samples (%.2fs) -> %d latent frames, %.0fms\n", src_len,
@@ -1356,7 +1362,7 @@ static void encode_worker(std::shared_ptr<Job> job, AceRequest ace_req, float * 
     std::memcpy(body.data(), latent.data(), body.size());
     job->result_body = std::move(body);
     job->result_mime = "application/octet-stream";
-    job->status.store(job->cancel.load() ? 3 : 1);
+    job->status.store(job->cancel.load() ? JobStatus::CANCELLED : JobStatus::DONE);
     fprintf(stderr, "[Server] Job %s done (encode)\n", job->id.c_str());
 }
 
@@ -1777,7 +1783,7 @@ int main(int argc, char ** argv) {
         }
         // ?result=1: return result body
         if (req.has_param("result") && req.get_param_value("result") == "1") {
-            if (job->status.load() != 1) {
+            if (job->status.load() != JobStatus::DONE) {
                 json_error(res, 404, "Result not ready");
                 return;
             }
@@ -1802,9 +1808,16 @@ int main(int argc, char ** argv) {
         }
         // ?cancel=1: cancel the job
         if (req.has_param("cancel") && req.get_param_value("cancel") == "1") {
-            job->cancel.store(true);
-            fprintf(stderr, "[Server] Cancel requested for job %s\n", job->id.c_str());
-            res.set_content("{\"status\":\"cancelled\"}", "application/json");
+            JobStatus status = job->status.load();
+            if (status == JobStatus::RUNNING) {
+                job->cancel.store(true);
+                fprintf(stderr, "[Server] Cancel requested for job %s\n", job->id.c_str());
+                status = JobStatus::CANCELLED;
+            }
+            std::string body = "{\"status\":\"";
+            body += job_status_str(status);
+            body += "\"}";
+            res.set_content(body, "application/json");
             return;
         }
         json_error(res, 400, "Unknown action");
