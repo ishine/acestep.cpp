@@ -370,7 +370,7 @@ static float * audio_planar_to_interleaved(const float * planar, int T) {
 // WAV output format
 enum WavFormat {
     WAV_S16,  // 16-bit signed integer PCM (classic RIFF, default)
-    WAV_S24,  // 24-bit signed integer PCM (WAVE_FORMAT_EXTENSIBLE)
+    WAV_S24,  // 24-bit signed integer PCM (classic RIFF)
     WAV_F32,  // 32-bit IEEE 754 float (classic RIFF, fmt_tag=3)
 };
 
@@ -457,45 +457,6 @@ static void wav_write_header_basic(char *& p, int T_audio, int sr, int n_channel
     wav_write_u32le(p, data_size);
 }
 
-// WAVE_FORMAT_EXTENSIBLE header for 24-bit PCM (40-byte fmt chunk)
-static void wav_write_header_extensible_s24(char *& p, int T_audio, int sr, int n_channels) {
-    uint32_t bytes_per_sample = 3;
-    uint32_t byte_rate        = (uint32_t) sr * (uint32_t) n_channels * bytes_per_sample;
-    uint16_t block_align      = (uint16_t) (n_channels * (int) bytes_per_sample);
-    uint32_t data_size        = (uint32_t) T_audio * (uint32_t) n_channels * bytes_per_sample;
-    uint32_t file_size        = 60 + data_size;
-
-    memcpy(p, "RIFF", 4);
-    p += 4;
-    wav_write_u32le(p, file_size);
-    memcpy(p, "WAVE", 4);
-    p += 4;
-
-    memcpy(p, "fmt ", 4);
-    p += 4;
-    wav_write_u32le(p, 40);
-    wav_write_u16le(p, 0xFFFE);
-    wav_write_u16le(p, (uint16_t) n_channels);
-    wav_write_u32le(p, (uint32_t) sr);
-    wav_write_u32le(p, byte_rate);
-    wav_write_u16le(p, block_align);
-    wav_write_u16le(p, 24);
-    wav_write_u16le(p, 22);
-    wav_write_u16le(p, 24);
-    wav_write_u32le(p, 0x04);  // channel mask: stereo (FL | FR)
-    // SubFormat GUID: KSDATAFORMAT_SUBTYPE_PCM
-    wav_write_u32le(p, 0x00000001u);
-    wav_write_u16le(p, 0x0000u);
-    wav_write_u16le(p, 0x0010u);
-    static const unsigned char guid_tail[] = { 0x80, 0x00, 0x00, 0xAA, 0x00, 0x38, 0x9B, 0x71 };
-    memcpy(p, guid_tail, 8);
-    p += 8;
-
-    memcpy(p, "data", 4);
-    p += 4;
-    wav_write_u32le(p, data_size);
-}
-
 // Encode planar stereo to WAV 16-bit signed integer PCM in memory.
 // 44-byte classic RIFF header (fmt_tag=1) + interleaved int16 samples.
 // Clamps to [-1, +1], coerces NaN/Inf to zero.
@@ -523,17 +484,17 @@ static std::string audio_encode_wav_s16(const float * audio, int T_audio, int sr
 }
 
 // Encode planar stereo to WAV 24-bit signed integer PCM in memory.
-// 68-byte WAVE_FORMAT_EXTENSIBLE header + interleaved int24 samples.
+// 44-byte classic RIFF header (fmt_tag=1) + interleaved int24 samples.
 // Clamps to [-1, +1], coerces NaN/Inf to zero.
 static std::string audio_encode_wav_s24(const float * audio, int T_audio, int sr) {
     int n_channels = 2;
     int data_size  = T_audio * n_channels * 3;
 
     std::string out;
-    out.resize(68 + (size_t) data_size);
+    out.resize(44 + (size_t) data_size);
     char * p = &out[0];
 
-    wav_write_header_extensible_s24(p, T_audio, sr, n_channels);
+    wav_write_header_basic(p, T_audio, sr, n_channels, 24, 1);
 
     const float * L = audio;
     const float * R = audio + T_audio;
