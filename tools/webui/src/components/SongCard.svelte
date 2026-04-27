@@ -217,6 +217,36 @@
 		if (idx >= 0) app.songs.splice(idx, 1);
 	}
 
+	// Delete every track above this card (newer entries).
+	async function removeAbove() {
+		if (song.id == null) return;
+		const idx = app.songs.findIndex((s) => s.id === song.id);
+		if (idx <= 0) return;
+		const victims = app.songs.slice(0, idx);
+		for (const s of victims) {
+			if (s.id == null) continue;
+			if (app.refSongId === s.id) app.refSongId = null;
+			if (app.srcSongId === s.id) app.srcSongId = null;
+			await deleteSong(s.id);
+		}
+		app.songs.splice(0, idx);
+	}
+
+	// Delete every track below this card (older entries).
+	async function removeBelow() {
+		if (song.id == null) return;
+		const idx = app.songs.findIndex((s) => s.id === song.id);
+		if (idx < 0 || idx === app.songs.length - 1) return;
+		const victims = app.songs.slice(idx + 1);
+		for (const s of victims) {
+			if (s.id == null) continue;
+			if (app.refSongId === s.id) app.refSongId = null;
+			if (app.srcSongId === s.id) app.srcSongId = null;
+			await deleteSong(s.id);
+		}
+		app.songs.splice(idx + 1);
+	}
+
 	// MM:SS:XX (hundredths) for current position
 	function fmtPos(s: number): string {
 		const m = Math.floor(s / 60);
@@ -253,7 +283,9 @@
 			disabled: !song.latents
 		},
 		{ icon: Ear, label: 'LM understand', onSelect: scan },
-		{ icon: Trash2, label: 'Delete track', onSelect: remove }
+		{ icon: Trash2, label: 'Delete this track', onSelect: remove },
+		{ icon: Trash2, label: 'Delete tracks above', onSelect: removeAbove },
+		{ icon: Trash2, label: 'Delete tracks below', onSelect: removeBelow }
 	]);
 </script>
 
