@@ -24,8 +24,10 @@
 		TASK_LEGO,
 		TASK_EXTRACT,
 		TASK_COMPLETE,
-		INFER_ODE,
-		INFER_SDE,
+		SOLVER_EULER,
+		SOLVER_SDE,
+		SOLVER_DPM3M,
+		SOLVER_STORK4,
 		DCW_MODE_LOW,
 		DCW_MODE_HIGH,
 		DCW_MODE_DOUBLE,
@@ -997,15 +999,24 @@
 					/></label
 				>
 				<label
-					>Method <select
-						value={app.request.infer_method || d?.infer_method || ''}
+					>Solver <select
+						value={app.request.solver || d?.solver || ''}
 						onchange={(e) => {
-							app.request.infer_method = e.currentTarget.value;
+							app.request.solver = e.currentTarget.value;
 						}}
 					>
-						<option value={INFER_ODE}>ODE Euler</option>
-						<option value={INFER_SDE}>SDE Stochastic</option>
+						<option value={SOLVER_EULER}>ODE Euler</option>
+						<option value={SOLVER_SDE}>SDE Ancestral</option>
+						<option value={SOLVER_DPM3M}>DPM++ 3M</option>
+						<option value={SOLVER_STORK4}>STORK 4</option>
 					</select></label
+				>
+				<label
+					>STORK substeps <input
+						type="text"
+						placeholder={ph(d?.stork_substeps)}
+						bind:value={app.request.stork_substeps}
+					/></label
 				>
 				<label
 					>Latent shift <input

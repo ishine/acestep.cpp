@@ -34,7 +34,8 @@ export interface AceRequest {
 	custom_timesteps?: string;
 	task_type?: string;
 	track?: string;
-	infer_method?: string;
+	solver?: string;
+	stork_substeps?: number;
 	peak_clip?: number;
 	mp3_bitrate?: number;
 	// server routing (not part of C++ AceRequest, parsed separately)
